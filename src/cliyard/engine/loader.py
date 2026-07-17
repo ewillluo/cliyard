@@ -3,7 +3,7 @@
 Loads a service directory structure into a merged dict::
 
     spec_dir/
-    ├── _service.yaml      # Service config (server, auth)
+    ├── _auth.yaml      # Service config (server, auth)
     ├── repos.yaml          # Resource definition → resource name "repos"
     ├── users.yaml          # Resource definition → resource name "users"
     └── ...
@@ -28,8 +28,8 @@ import yaml
 def load_service(spec_dir: str | Path) -> dict[str, Any]:
     """Load a cliyard service from a directory.
 
-    Reads ``_service.yaml`` for service metadata, then scans for
-    ``*.yaml`` resource files (excluding ``_service.yaml`` and
+    Reads ``_auth.yaml`` for service metadata, then scans for
+    ``*.yaml`` resource files (excluding ``_auth.yaml`` and
     ``_service.*.yaml`` variants like ``_service.local.yaml``).
 
     Each resource YAML filename (minus ``.yaml``) becomes the resource name.
@@ -42,16 +42,16 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
         ``server``, ``auth``, ``resources`` (list of resource dicts).
 
     Raises:
-        FileNotFoundError: If ``_service.yaml`` is missing.
+        FileNotFoundError: If ``_auth.yaml`` is missing.
         yaml.YAMLError: If any YAML file has syntax errors.
-        ValueError: If ``_service.yaml`` is missing required fields.
+        ValueError: If ``_auth.yaml`` is missing required fields.
     """
     spec_dir = Path(spec_dir)
-    service_path = spec_dir / "_service.yaml"
+    service_path = spec_dir / "_auth.yaml"
 
     if not service_path.exists():
         raise FileNotFoundError(
-            f"Missing _service.yaml in {spec_dir}"
+            f"Missing _auth.yaml in {spec_dir}"
         )
 
     # Load service config
@@ -144,9 +144,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _is_resource_file(path: Path) -> bool:
-    """Check if a YAML file is a resource file (not _service.yaml or _service.*.yaml)."""
+    """Check if a YAML file is a resource file (not _auth.yaml or _service.*.yaml)."""
     name = path.name
-    if name == "_service.yaml":
+    if name == "_auth.yaml":
         return False
     if name.startswith("_service.") and name.endswith(".yaml"):
         return False
@@ -167,7 +167,7 @@ def _register_plugins(plugins_config: dict[str, Any]) -> None:
             add_timestamp: mypackage.hooks.add_timestamp
 
     Args:
-        plugins_config: Dict parsed from the ``plugins:`` key in ``_service.yaml``.
+        plugins_config: Dict parsed from the ``plugins:`` key in ``_auth.yaml``.
     """
     if not plugins_config:
         return

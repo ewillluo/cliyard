@@ -1,7 +1,7 @@
 """YAML spec schema validator for cliyard.
 
 Catches configuration errors at load time rather than runtime.
-Validates _service.yaml and resource YAML files against expected structure.
+Validates _auth.yaml and resource YAML files against expected structure.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ class ValidationResult:
 # Top-level: validate_service
 # ---------------------------------------------------------------------------
 
-def validate_service(spec: dict, filename: str = "_service.yaml") -> ValidationResult:
-    """Validate a ``_service.yaml`` spec dict.
+def validate_service(spec: dict, filename: str = "_auth.yaml") -> ValidationResult:
+    """Validate a ``_auth.yaml`` spec dict.
 
     Checks:
     - ``name`` must be present and non-empty.
@@ -44,7 +44,7 @@ def validate_service(spec: dict, filename: str = "_service.yaml") -> ValidationR
 
     Args:
         spec: Parsed YAML dict (from ``yaml.safe_load``).
-        filename: Filename used in error messages (default ``_service.yaml``).
+        filename: Filename used in error messages (default ``_auth.yaml``).
 
     Returns:
         :class:`ValidationResult` with ``is_valid`` flag and ``errors`` list.

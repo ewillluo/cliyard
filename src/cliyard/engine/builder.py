@@ -421,13 +421,70 @@ def build_operation_command(
         click_params.append(_param_to_option(param))
 
     http_method = method_spec.get("http", {}).get("method", "?")
+    method_type = method_spec.get("type", "")
+
+    if method_type.startswith("plugin:"):
+        plugin_name = method_type[7:]
+        callback = _make_plugin_callback(plugin_name, method_spec, ctx)
+    else:
+        callback = _make_callback(method_spec, ctx, resource_spec["name"], resource_spec)
 
     return click.Command(
         name=method_name,
-        callback=_make_callback(method_spec, ctx, resource_spec["name"], resource_spec),
+        callback=callback,
         params=click_params,
         short_help=f"{http_method} operation",
     )
+
+
+def _make_plugin_callback(
+    plugin_name: str,
+    method_spec: dict[str, Any],
+    ctx: ServiceContext,
+) -> Callable[..., None]:
+    """Create a callback that runs a registered plugin method."""
+    from rich.console import Console
+    from cliyard.engine.binder import bind_and_validate
+    from cliyard.client.http import HttpClient
+    from cliyard.client.auth import run_auth_chain
+    from cliyard.engine.errors import CliyError
+    from cliyard.plugin import PluginRegistry
+    from cliyard.plugin.discovery import discover_plugins
+    import json
+
+    console = Console()
+
+    def callback(**kwargs: Any) -> None:
+        discover_plugins()
+        plugin_fn = PluginRegistry.get_method(plugin_name)
+        if not plugin_fn:
+            console.print(f"[red]Plugin method '{plugin_name}' not found[/red]")
+            return
+
+        try:
+            validated = bind_and_validate(kwargs, method_spec)
+            merged = {"query": {}, "body": {}, "header": {}, "path": {}}
+            for loc in ("query", "body", "header"):
+                merged[loc] = getattr(validated, loc)
+            merged["path"] = getattr(validated, "path")
+            merged.update(getattr(validated, "path"))
+            merged.update(getattr(validated, "body"))
+
+            client = HttpClient(ctx.base_url)
+            if ctx.auth_spec:
+                run_auth_chain(ctx.auth_spec, http_client=client,
+                               pre_filled=ctx.pre_filled_auth)
+
+            config = method_spec.get("config", {})
+            result = plugin_fn(params=merged, http_client=client, config=config)
+            console.print(json.dumps(result, indent=2, ensure_ascii=False))
+
+        except CliyError as e:
+            console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
+        except Exception as e:
+            console.print(f"[red]Unexpected error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
+
+    return callback
 
 
 def build_resource_group(

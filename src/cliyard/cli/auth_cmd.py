@@ -29,7 +29,7 @@ def auth_group() -> None:
 def auth_login(spec_dir: str) -> None:
     """Initialize auth credentials by running the auth chain.
 
-    Reads the auth spec from ``_service.yaml``, executes all auth steps,
+    Reads the auth spec from ``_auth.yaml``, executes all auth steps,
     and persists the resulting tokens according to the ``auth.persist``
     configuration.
     """
@@ -48,7 +48,7 @@ def auth_login(spec_dir: str) -> None:
 
     auth_spec = service.get("auth")
     if not auth_spec:
-        console.print("[red]No auth config found in _service.yaml[/red]")
+        console.print("[red]No auth config found in _auth.yaml[/red]")
         return
 
     # Run the auth chain (no pre-filled — full re-login)

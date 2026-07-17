@@ -4,6 +4,7 @@ Extension points:
 - auth: Custom authentication step types
 - types: Custom field types (validation + conversion)
 - hooks: Custom pre/post request processing hooks
+- methods: Custom business logic methods (multi-step API calls)
 """
 
 from __future__ import annotations
@@ -17,71 +18,64 @@ class PluginRegistry:
     _auth_steps: dict[str, type] = {}
     _field_types: dict[str, type] = {}
     _hooks: dict[str, Callable] = {}
+    _methods: dict[str, Callable] = {}
     _loaded: bool = False
 
     @classmethod
     def register_auth_step(cls, name: str, step_class: type) -> None:
-        """Register a custom auth step class under a name.
-
-        Args:
-            name: Step type name (e.g. "my_oauth" accessible as "plugin:my_oauth").
-            step_class: Class implementing the auth step protocol.
-        """
         cls._auth_steps[name] = step_class
 
     @classmethod
     def register_field_type(cls, name: str, type_class: type) -> None:
-        """Register a custom field type validator.
-
-        Args:
-            name: Field type name used in YAML specs (e.g. "email", "url").
-            type_class: Class with a ``validate(value)`` classmethod/staticmethod.
-        """
         cls._field_types[name] = type_class
 
     @classmethod
     def register_hook(cls, name: str, hook_fn: Callable) -> None:
-        """Register a pre/post request processing hook.
-
-        Args:
-            name: Hook name for reference in YAML specs.
-            hook_fn: Callable that receives request/response context.
-        """
         cls._hooks[name] = hook_fn
 
     @classmethod
-    def get_auth_step(cls, name: str) -> type | None:
-        """Look up a registered auth step class by name.
+    def register_method(cls, name: str, method_fn: Callable) -> None:
+        """Register a custom business logic method.
 
-        Returns:
-            The registered class, or None if not found.
+        The function receives ``(params, http_client, config)`` and returns
+        a dict that will be formatted as JSON output.
+
+        Usage in YAML::
+
+            methods:
+              complex_task:
+                type: plugin:my_method
+                config:
+                  key: value
+                params:
+                  body:
+                    - name: input
+                      type: string
         """
+        cls._methods[name] = method_fn
+
+    @classmethod
+    def get_auth_step(cls, name: str) -> type | None:
         return cls._auth_steps.get(name)
 
     @classmethod
     def get_field_type(cls, name: str) -> type | None:
-        """Look up a registered field type class by name.
-
-        Returns:
-            The registered class, or None if not found.
-        """
         return cls._field_types.get(name)
 
     @classmethod
     def get_hook(cls, name: str) -> Callable | None:
-        """Look up a registered hook function by name.
-
-        Returns:
-            The registered callable, or None if not found.
-        """
         return cls._hooks.get(name)
 
     @classmethod
+    def get_method(cls, name: str) -> Callable | None:
+        return cls._methods.get(name)
+
+    @classmethod
     def clear(cls) -> None:
-        """Clear all registrations (primarily for testing)."""
         cls._auth_steps.clear()
         cls._field_types.clear()
         cls._hooks.clear()
+        cls._methods.clear()
         cls._loaded = False
 
 
@@ -91,15 +85,6 @@ class PluginRegistry:
 
 
 def register_auth_step(name: str):
-    """Decorator that registers a class as an auth step plugin.
-
-    Usage::
-
-        @register_auth_step("my_oauth")
-        class MyOAuthStep:
-            def execute(self, auth_state, config, http_client):
-                ...
-    """
     def decorator(cls):
         PluginRegistry.register_auth_step(name, cls)
         return cls
@@ -107,16 +92,6 @@ def register_auth_step(name: str):
 
 
 def register_field_type(name: str):
-    """Decorator that registers a class as a field type validator.
-
-    Usage::
-
-        @register_field_type("email")
-        class EmailType:
-            @staticmethod
-            def validate(value):
-                ...
-    """
     def decorator(cls):
         PluginRegistry.register_field_type(name, cls)
         return cls
@@ -124,15 +99,24 @@ def register_field_type(name: str):
 
 
 def register_hook(name: str):
-    """Decorator that registers a function as a request hook.
+    def decorator(fn):
+        PluginRegistry.register_hook(name, fn)
+        return fn
+    return decorator
+
+
+def register_method(name: str):
+    """Decorator that registers a function as a custom method plugin.
 
     Usage::
 
-        @register_hook("add_timestamp")
-        def add_timestamp(context):
-            ...
+        @register_method("multi_step_import")
+        def multi_step_import(params, http_client, config):
+            r1 = http_client.request("POST", "/api/step1", data=params)
+            r2 = http_client.request("POST", "/api/step2", json=r1.json())
+            return {"result": r2.json()}
     """
     def decorator(fn):
-        PluginRegistry.register_hook(name, fn)
+        PluginRegistry.register_method(name, fn)
         return fn
     return decorator

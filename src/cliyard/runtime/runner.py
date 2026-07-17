@@ -111,7 +111,7 @@ def run_with_spec(spec_dir: str) -> NoReturn:
 
     Args:
         spec_dir: Path to the service spec directory (must contain
-            ``_service.yaml`` and ``*.yaml`` resource files).
+            ``_auth.yaml`` and ``*.yaml`` resource files).
 
     Returns:
         This function never returns; it calls ``sys.exit()`` with the

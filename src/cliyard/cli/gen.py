@@ -81,8 +81,8 @@ pip install -e .
 {CLI_NAME} auth add -n myenv -e <endpoint> -t <token>
 
 # Run commands
-{CLI_NAME} repos list --page-size 10
-{CLI_NAME} repos list --format json
+{CLI_NAME} <resource> list --page-size 10
+{CLI_NAME} <resource> list --format json
 ```
 
 ## Adding new resources
@@ -147,7 +147,7 @@ def custom_hook(req):
     return req
 ```
 
-Reference plugins in `_service.yaml`:
+Reference plugins in `_auth.yaml`:
 
 ```yaml
 auth:
@@ -155,6 +155,41 @@ auth:
     - name: login
       type: plugin:custom_login
 ```
+
+## Custom method plugins
+
+For business logic that involves multiple API calls, write a method plugin:
+
+```python
+# src/{pkg_name}/specs/plugins/my_biz.py
+from cliyard.plugin import register_method
+
+@register_method("multi_step_import")
+def multi_step_import(params, http_client, config):
+    # Step 1: prepare
+    r1 = http_client.request("POST", "/api/prepare", data=params)
+    # Step 2: transform and commit
+    r2 = http_client.request("POST", "/api/commit", json=r1.json())
+    return {"status": "done", "id": r2.json().get("id")}
+```
+
+Reference it in a resource YAML:
+
+```yaml
+methods:
+  import:
+    type: plugin:multi_step_import
+    config:
+      batch_size: 100
+    params:
+      body:
+        - name: source
+          type: string
+          required: true
+```
+
+The plugin function receives ``params`` (validated CLI args), ``http_client``
+(authenticated), and ``config`` (from YAML). The return value is JSON output.
 
 ## Multiple environments
 
@@ -165,7 +200,7 @@ auth:
 
 # Switch between them
 {CLI_NAME} auth switch prod
-{CLI_NAME} --env prod repos list
+{CLI_NAME} --env prod <resource> list
 ```
 """
 
@@ -187,7 +222,7 @@ auth:
 def gen(name: str, defs_path: str | None, output: str | None) -> None:
     """Generate a standalone CLI tool from YAML specs.
 
-    Reads a cliyard service spec directory (containing ``_service.yaml``
+    Reads a cliyard service spec directory (containing ``_auth.yaml``
     and resource YAML files) and produces a pip-installable Python package
     in the output directory. If ``--defs-path`` is omitted, generates an
     empty scaffold that you can fill in later.
@@ -206,21 +241,21 @@ def gen(name: str, defs_path: str | None, output: str | None) -> None:
     # 1. Validate or create defs-path
     if defs_path:
         spec_dir = Path(defs_path).resolve()
-        service_yaml = spec_dir / "_service.yaml"
+        service_yaml = spec_dir / "_auth.yaml"
         if not service_yaml.exists():
-            click.echo(f"Error: {spec_dir} does not contain _service.yaml", err=True)
+            click.echo(f"Error: {spec_dir} does not contain _auth.yaml", err=True)
             sys.exit(1)
-        click.echo(f"✔ Found _service.yaml in {spec_dir}")
+        click.echo(f"✔ Found _auth.yaml in {spec_dir}")
     else:
         # No --defs-path: check if output specs/ already has YAMLs
-        existing_svc = specs_dir / "_service.yaml"
+        existing_svc = specs_dir / "_auth.yaml"
         if existing_svc.exists():
             spec_dir = specs_dir  # Regenerate from existing specs
             click.echo(f"✔ Reusing specs from {specs_dir}")
         else:
             spec_dir = None
-            # Generate a minimal _service.yaml for the scaffold
-            scaffold_svc = specs_dir / "_service.yaml"
+            # Generate a minimal _auth.yaml for the scaffold
+            scaffold_svc = specs_dir / "_auth.yaml"
             scaffold_svc.write_text(f"""\
 name: {name}
 version: "0.1.0"

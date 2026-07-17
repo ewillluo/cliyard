@@ -23,7 +23,7 @@ from typing import Any, TypedDict
 
 
 # ---------------------------------------------------------------------------
-# Top-level: _service.yaml
+# Top-level: _auth.yaml
 # ---------------------------------------------------------------------------
 
 
@@ -98,7 +98,7 @@ class AuthChain(TypedDict, total=False):
 
 
 class ServiceSpec(TypedDict):
-    """Top-level structure of a `_service.yaml` file.
+    """Top-level structure of a `_auth.yaml` file.
 
     This is the root type for a cliyard service definition. It describes
     the service metadata, server connection, authentication, and resources.

@@ -36,23 +36,33 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
     @click.option("-t", "--token", help="API token (skip login, save directly)")
     @click.option("-e", "--endpoint", help="Server endpoint URL")
     @click.option("--default", "set_default", is_flag=True, help="Set as default environment")
-    def auth_add(name, username, password, token, endpoint, set_default):
+    @click.option("--set", "set_vars", type=str, multiple=True, help="Set env vars, e.g. --set API_KEY=abc")
+    def auth_add(name, username, password, token, endpoint, set_default, set_vars):
         profile_name = name or "prod"
         auth_spec = service.get("auth")
         if not auth_spec:
             _console.print("[red]No auth config found[/red]")
             return
         _base_url = endpoint or base_url
-        client = HttpClient(base_url)
+        client = HttpClient(_base_url)
         if token:
-            save_profile(profile_name, {"token": token, "endpoint": base_url},
+            save_profile(profile_name, {"token": token, "endpoint": _base_url},
                          set_current=set_default or not get_current_profile())
             _console.print(f"[green]Token saved for '{profile_name}'[/green]")
             return
+        # Set env vars from YAML auth.params mapping
+        auth_params = auth_spec.get("params", {})
         if username:
-            os.environ["KETA_USER"] = username
+            env_user = auth_params.get("username", "KETA_USER")
+            os.environ[env_user] = username
         if password:
-            os.environ["KETA_PASS"] = password
+            env_pass = auth_params.get("password", "KETA_PASS")
+            os.environ[env_pass] = password
+        # Set arbitrary env vars from --set
+        for kv in (set_vars or ()):
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                os.environ[k.strip()] = v.strip()
         try:
             auth_state = run_auth_chain(auth_spec, http_client=client)
         except Exception as e:
