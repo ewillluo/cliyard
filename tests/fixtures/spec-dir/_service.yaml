@@ -1,0 +1,5 @@
+name: test-service
+version: "1.0"
+description: Test service for cliyard runtime pipeline
+server:
+  base_url: https://httpbin.org

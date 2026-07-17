@@ -1,0 +1,24 @@
+description: Repos
+path: repos
+methods:
+  list:
+    http:
+      method: GET
+    params:
+      query:
+        - name: page
+          type: int
+          default: 1
+    output:
+      items_path: $
+      fields:
+        - name: name
+          alias: Name
+  create:
+    http:
+      method: POST
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
