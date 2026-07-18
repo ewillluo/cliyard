@@ -1,0 +1,335 @@
+name: export-task
+description: 导出任务
+path: export/task
+methods:
+  list:
+    description: 导出任务列表
+    http:
+      method: GET
+      path: export/task/list
+    params:
+      query:
+        - name: pageNo
+          field: pageNo
+          type: int
+          default: 1
+          description: 页码
+        - name: pageSize
+          field: pageSize
+          type: int
+          default: 20
+          description: 每页条数
+    output:
+      items_path: $.tasks
+      fields:
+        - name: id
+          alias: ID
+        - name: name
+          alias: 名称
+        - name: description
+          alias: 描述
+        - name: app
+          alias: 应用
+        - name: status
+          alias: 状态
+        - name: spl
+          alias: SPL 查询
+        - name: createTime
+          alias: 创建时间
+        - name: updateTime
+          alias: 更新时间
+  create:
+    description: 创建导出任务
+    http:
+      method: POST
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 任务名称
+        - name: spl
+          type: string
+          required: true
+          description: SPL 查询语句
+        - name: description
+          type: string
+          description: 任务描述
+        - name: interval_type
+          field: intervalType
+          type: string
+          default: cronDate
+          description: 调度类型 (cronDate/crontab)
+        - name: cron_frequency
+          field: cronFrequency
+          type: string
+          default: day
+          description: 调度频率 (day/month)
+        - name: cron_month
+          field: cronMonth
+          type: int
+          default: 1
+          description: 调度月份
+        - name: cron_date
+          field: cronDate
+          type: int
+          description: 调度日期
+        - name: cron_hour
+          field: cronHour
+          type: int
+          default: 16
+          description: 调度小时
+        - name: cron_minute
+          field: cronMinute
+          type: int
+          description: 调度分钟
+        - name: crontab
+          type: string
+          description: Cron 表达式
+        - name: app
+          type: string
+          default: search
+          description: 所属应用
+        - name: range_preset
+          field: rangePreset
+          type: string
+          default: h24
+          description: "时间范围预设 (h1/h3/h6/h12/h24/d1/w1)"
+    request_body:
+      name: '{{ name }}'
+      spl: '{{ spl }}'
+      description: '{{ description | default("") }}'
+      interval:
+        type: '{{ interval_type | default("cronDate") }}'
+        cronDate:
+          frequency: '{{ cron_frequency | default("day") }}'
+          month: '{{ cron_month | default(1) }}'
+          date: '{{ cron_date | default(0) }}'
+          hour: '{{ cron_hour | default(16) }}'
+          minute: '{{ cron_minute | default(0) }}'
+        crontab: '{{ crontab | default("") }}'
+      app: '{{ app | default("search") }}'
+      range:
+        preset: '{{ range_preset | default("h24") }}'
+  update:
+    description: 更新导出任务
+    http:
+      method: PUT
+      path: export/task/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 导出任务 ID
+      body:
+        - name: name
+          type: string
+          description: 任务名称
+        - name: spl
+          type: string
+          description: SPL 查询语句
+        - name: description
+          type: string
+          description: 任务描述
+        - name: interval_type
+          field: intervalType
+          type: string
+          default: crontab
+          description: 调度类型 (cronDate/crontab)
+        - name: cron_frequency
+          field: cronFrequency
+          type: string
+          default: day
+          description: 调度频率 (day/month)
+        - name: cron_month
+          field: cronMonth
+          type: int
+          default: 1
+          description: 调度月份
+        - name: cron_date
+          field: cronDate
+          type: int
+          description: 调度日期
+        - name: cron_hour
+          field: cronHour
+          type: int
+          default: 16
+          description: 调度小时
+        - name: cron_minute
+          field: cronMinute
+          type: int
+          description: 调度分钟
+        - name: crontab
+          type: string
+          default: "0 * * * * ?"
+          description: Cron 表达式
+        - name: app
+          type: string
+          default: search
+          description: 所属应用
+        - name: range_preset
+          field: rangePreset
+          type: string
+          default: h3
+          description: "时间范围预设 (h1/h3/h6/h12/h24/d1/w1)"
+    request_body:
+      name: '{{ name }}'
+      spl: '{{ spl | default("") }}'
+      description: '{{ description | default("") }}'
+      interval:
+        type: '{{ interval_type | default("crontab") }}'
+        cronDate:
+          frequency: '{{ cron_frequency | default("day") }}'
+          month: '{{ cron_month | default(1) }}'
+          date: '{{ cron_date | default(0) }}'
+          hour: '{{ cron_hour | default(16) }}'
+          minute: '{{ cron_minute | default(0) }}'
+        crontab: '{{ crontab | default("0 * * * * ?") }}'
+      app: '{{ app | default("search") }}'
+      range:
+        from: null
+        to: null
+        preset: '{{ range_preset | default("h3") }}'
+        rangePreset: null
+        timeShift: null
+        global: false
+        relative: null
+        onlyTradingDay: false
+        fragment: true
+  delete:
+    description: 删除导出任务
+    http:
+      method: POST
+      path: export/task:batchDelete
+    params:
+      body:
+        - name: asset_id
+          type: string
+          required: true
+          multiple: true
+          description: 导出任务 ID (可多次传递)
+    request_body:
+      taskIds:
+        - '{{ asset_id }}'
+  get_history:
+    description: 获取导出任务历史记录
+    http:
+      method: GET
+      path: export/task/{{ asset_id }}/history
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 导出任务 ID
+      query:
+        - name: order
+          type: string
+          default: desc
+        - name: pageNo
+          type: int
+          default: 1
+        - name: pageSize
+          type: int
+          default: 20
+        - name: sort
+          type: string
+          default: time
+        - name: prefix
+          type: string
+        - name: status
+          type: string
+    output:
+      items_path: $.histories
+      fields:
+        - name: id
+          alias: ID
+        - name: status
+          alias: 状态
+        - name: time
+          alias: 执行时间
+        - name: fileName
+          alias: 文件名
+  retry:
+    description: 重试导出任务
+    http:
+      method: POST
+      path: export/task/{{ asset_id }}/retry
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 导出任务 ID
+      body:
+        - name: history_id
+          field: historyId
+          type: string
+          required: true
+          description: 历史记录 ID
+    request_body:
+      ids:
+        - '{{ history_id }}'
+  owner:
+    description: 变更导出任务所有者
+    http:
+      method: PUT
+      path: auth/knowledge/owner/bulk/search_export_task
+    params:
+      body:
+        - name: owner
+          type: string
+          required: true
+          description: 新的所有者用户名
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 导出任务ID列表（逗号分隔）
+    request_body:
+      owner: '{{ owner }}'
+      assetId: '{{ asset_id | default([]) }}'
+  grant:
+    description: 授权导出任务
+    http:
+      method: PUT
+      path: auth/knowledge/bulk/search_export_task
+    params:
+      body:
+        - name: grant
+          type: string
+          required: true
+          multiple: true
+          description: "授权项，格式 role:op1,op2,..."
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 导出任务 ID（可重复传递）
+        - name: scope
+          type: string
+          default: global
+          description: 授权范围
+        - name: app
+          type: string
+          default: search
+          description: 应用名
+    request_body:
+      resourceIds: '{{ asset_id | default([]) }}'
+      rolePerms: '{{ grant | default([]) }}'
+      scope: '{{ scope | default("global") }}'
+      app: '{{ app | default("search") }}'
+  authority:
+    description: 查看导出任务权限
+    http:
+      method: GET
+      path: auth/knowledge/search_export_task/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 导出任务 ID

@@ -135,6 +135,11 @@ def _param_to_option(param: dict[str, Any]) -> click.Option:
         kwargs["multiple"] = True
         kwargs.pop("required", None)
 
+    # Show default value in --help when present
+    if "default" in kwargs and kwargs["default"] is not None:
+        if not param.get("type") == "bool" or not kwargs.get("is_flag"):
+            kwargs["show_default"] = True
+
     # Only pass to click if not None
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
@@ -144,7 +149,7 @@ def _param_to_option(param: dict[str, Any]) -> click.Option:
 def _param_to_argument(param: dict[str, Any]) -> click.Argument:
     """Convert a ParamSpec dict into a ``click.Argument``.
 
-    Used for *path* params only (e.g. ``{id}`` in ``/repos/{id}``).
+    Used for *path* params and params with ``argument: true``.
 
     Returns:
         A ``click.Argument`` configured for this parameter.
@@ -161,6 +166,9 @@ def _param_to_argument(param: dict[str, Any]) -> click.Argument:
 
     if param.get("required", False):
         kwargs["required"] = True
+
+    if "default" in param:
+        kwargs["default"] = param["default"]
 
     return click.Argument([name], **kwargs)
 
@@ -224,12 +232,31 @@ def _make_callback(
             # Extract built-in options (--format) before validation
             output_format: str = kwargs.pop("format", "table")
 
-            # Ensure http.path falls back to resource path
+            # Ensure http.path falls back to resource path (not filename)
             if not method_spec.get("http", {}).get("path"):
-                method_spec.setdefault("http", {})["path"] = resource_name
+                method_spec.setdefault("http", {})["path"] = resource_spec.get("path", resource_name)
 
             # Stage 1: bind & validate
             validated = bind_and_validate(kwargs, method_spec)
+
+            # Read file-type params: replace file paths with contents
+            for _location in ("path", "query", "header", "body"):
+                for _param in method_spec.get("params", {}).get(_location, []):
+                    if _param.get("type") == "file" and _param["name"] in kwargs:
+                        _file_path = kwargs[_param["name"]]
+                        if isinstance(_file_path, (tuple, list)):
+                            _file_path = _file_path[0]
+                        if _file_path:
+                            from cliyard.engine.errors import CliyError as _CliyErr
+
+                            try:
+                                with open(_file_path) as _f:
+                                    kwargs[_param["name"]] = _f.read()
+                            except Exception as _e:
+                                raise _CliyErr(f"Failed to read config file {_file_path}: {_e}")
+                        # Re-bind after file read (re-validate)
+                        validated = bind_and_validate(kwargs, method_spec)
+
             merged_params: dict[str, Any] = {}
             # Nest params by location for assembler
             for loc in ("query", "body", "header"):
@@ -239,6 +266,8 @@ def _make_callback(
             merged_params.update(getattr(validated, "path"))
             # Body vars also at top level (path templates may reference body params)
             merged_params.update(getattr(validated, "body"))
+            # Argument vars at top level
+            merged_params.update(getattr(validated, "argument"))
 
             # Stage 2: run auth chain
             if service_ctx.auth_spec:
@@ -379,7 +408,7 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
         name="list",
         callback=_make_callback(method_spec, ctx, resource_spec["name"], resource_spec),
         params=click_params,
-        short_help="List resources",
+        short_help=method_spec.get("description") or "List resources",
     )
 
 
@@ -404,21 +433,17 @@ def build_operation_command(
 
     click_params: list[click.Parameter] = []
 
-    # Path params → positional arguments
+    # Collect all params that should be Click arguments
+    for _loc in ("body", "query", "header"):
+        for param in params_spec.get(_loc, []):
+            if param.get("argument"):
+                click_params.append(_param_to_argument(param))
+            else:
+                click_params.append(_param_to_option(param))
+
+    # Path params → positional arguments (always)
     for param in params_spec.get("path", []):
         click_params.append(_param_to_argument(param))
-
-    # Query params → options
-    for param in params_spec.get("query", []):
-        click_params.append(_param_to_option(param))
-
-    # Body params → options
-    for param in params_spec.get("body", []):
-        click_params.append(_param_to_option(param))
-
-    # Header params → options (future use)
-    for param in params_spec.get("header", []):
-        click_params.append(_param_to_option(param))
 
     http_method = method_spec.get("http", {}).get("method", "?")
     method_type = method_spec.get("type", "")
@@ -433,7 +458,7 @@ def build_operation_command(
         name=method_name,
         callback=callback,
         params=click_params,
-        short_help=f"{http_method} operation",
+        short_help=method_spec.get("description") or f"{http_method} operation",
     )
 
 
@@ -464,11 +489,12 @@ def _make_plugin_callback(
         try:
             validated = bind_and_validate(kwargs, method_spec)
             merged = {"query": {}, "body": {}, "header": {}, "path": {}}
-            for loc in ("query", "body", "header"):
+            for loc in ("argument", "query", "body", "header"):
                 merged[loc] = getattr(validated, loc)
             merged["path"] = getattr(validated, "path")
             merged.update(getattr(validated, "path"))
             merged.update(getattr(validated, "body"))
+            merged.update(getattr(validated, "argument"))
 
             client = HttpClient(ctx.base_url)
             if ctx.auth_spec:
@@ -477,6 +503,8 @@ def _make_plugin_callback(
 
             config = method_spec.get("config", {})
             result = plugin_fn(params=merged, http_client=client, config=config)
+            if isinstance(result, dict) and result.get("_formatted"):
+                return  # Plugin already handled output
             console.print(json.dumps(result, indent=2, ensure_ascii=False))
 
         except CliyError as e:

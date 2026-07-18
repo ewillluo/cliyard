@@ -1,0 +1,19 @@
+name: dc-template
+description: KetaAgent 采集模板
+path: appassets
+methods:
+  download:
+    description: 下载采集模板
+    http:
+      method: GET
+      path: appassets/{{ app_name }}/fixed/static/{{ template_filename }}
+    params:
+      path:
+        - name: app_name
+          type: string
+          default: base_collect
+          description: 应用名
+        - name: template_filename
+          type: string
+          required: true
+          description: 模板文件名

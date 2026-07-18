@@ -53,7 +53,14 @@ def _render_value(value: Any, variables: dict[str, str]) -> Any:
         if "{{" not in value and "{%" not in value:
             return value
         try:
-            return Template(value).render(**variables)
+            rendered = Template(value).render(**variables)
+            # Detect tojson output: parse JSON arrays/objects back to native types
+            if rendered.startswith(("[", "{")):
+                try:
+                    return json.loads(rendered)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return rendered
         except Exception:
             # If rendering fails (missing var), return original
             return value
@@ -243,10 +250,18 @@ def assemble_request(
             if req_body is not None:
                 body = _render_value(req_body, params)
             else:
-                # Fallback: use body params from method_spec
+                # Fallback: use body params from method_spec with field mapping
                 body_params = params.get("body", {})
                 if body_params:
-                    body = body_params
+                    # Apply field mapping to body params
+                    body = {}
+                    for param in method_spec.get("params", {}).get("body", []):
+                        name = param["name"]
+                        field = param.get("field", name)
+                        if name in body_params:
+                            body[field] = body_params[name]
+                    if not body:
+                        body = body_params
 
     return Request(
         method=method.upper(),

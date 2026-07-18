@@ -1,0 +1,16 @@
+name: dc-server-config
+description: KetaAgent 采集服务端配置
+path: dc/collector/server/config
+methods:
+  list:
+    description: 采集服务端配置列表
+    http:
+      method: GET
+    output:
+      items_path: $.configs
+      fields:
+        - name: id
+          alias: ID
+        - name: name
+          alias: 名称
+      path: dc/collector/server/config

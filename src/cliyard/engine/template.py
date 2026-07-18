@@ -13,8 +13,10 @@ Security model:
 
 from __future__ import annotations
 
+import datetime as datetime_module
 import json
 import os
+import random as random_module
 import time as time_module
 from typing import Any
 
@@ -74,9 +76,24 @@ class Template:
             # --- Register whitelisted global functions ---
             self.env.globals["env"] = _func_env
             self.env.globals["time"] = time_module
+            self.env.globals["datetime"] = datetime_module
+            self.env.globals["random"] = random_module
+            self.env.globals["int"] = int
+            self.env.globals["float"] = float
+            self.env.globals["str"] = str
+            self.env.globals["len"] = len
+            self.env.globals["range"] = range
             self.env.globals["None"] = None
             self.env.globals["True"] = True
             self.env.globals["False"] = False
+
+            # Try to register faker (optional dependency)
+            try:
+                from faker import Faker
+                _faker = Faker()
+                self.env.globals["faker"] = _faker
+            except ImportError:
+                pass
 
             # Compile and cache
             self.temp = self.env.from_string(template_str)
@@ -95,6 +112,36 @@ class Template:
                 (e.g., ``open``, ``import``, ``__builtins__``).
         """
         return self.temp.render(**kwargs)
+
+    def batch_render(self, count: int, render: bool = True) -> list[str]:
+        """Render the template multiple times, producing *count* independent results.
+
+        Each render picks up new values from globals like ``random`` and ``faker``,
+        so each result is independent. This is useful for generating mock data.
+
+        Args:
+            count: Number of times to render.
+            render: If ``True``, call ``self.temp.render()`` each time.
+                If ``False``, just repeat the raw template string.
+
+        Returns:
+            List of *count* rendered strings.
+        """
+        from jinja2 import UndefinedError
+
+        results: list[str] = [None] * count  # type: ignore
+        for i in range(count):
+            if not render:
+                results[i] = self.template_str
+            else:
+                try:
+                    results[i] = self.temp.render()
+                except UndefinedError as e:
+                    raise RuntimeError(
+                        f"Template rendering failed: {self.template_str}. "
+                        f"Provide required params. {e}"
+                    ) from e
+        return results
 
 
 # ---------------------------------------------------------------------------

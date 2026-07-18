@@ -20,7 +20,7 @@ from typing import Any, NoReturn
 import click
 
 
-def create_cli(spec_dir: str) -> click.Group:
+def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
     """Load a cliyard service spec and build a Click CLI group.
 
     Returns a ``click.Group`` with all resource commands registered.
@@ -92,12 +92,25 @@ def create_cli(spec_dir: str) -> click.Group:
 
     cli = click.Group(name=service_name, help=description)
 
+    # Add --version if version is provided
+    if version:
+        from click.decorators import version_option
+        version_option(version=version, prog_name=service_name)(cli)
+
     from cliyard.runtime.auth_commands import add_auth_commands
     add_auth_commands(cli, service, base_url=server.get("base_url", "http://localhost:8080"))
 
     for resource in service.get("resources", []):
         group = build_resource_group(resource["name"], resource, ctx)
         cli.add_command(group)
+
+    # Add top-level command plugins (e.g. search)
+    from cliyard.plugin import PluginRegistry
+    from cliyard.plugin.discovery import discover_plugins
+
+    discover_plugins()
+    for _cmd_name, _cmd_fn in PluginRegistry.get_all_commands().items():
+        _cmd_fn(cli, ctx)
 
     return cli
 

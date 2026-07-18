@@ -1,0 +1,156 @@
+name: region
+description: KetaAgent 区域管理
+path: region
+methods:
+  list:
+    description: 区域列表
+    http:
+      method: GET
+    output:
+      items_path: $.regions
+      fields:
+        - name: id
+          alias: ID
+        - name: name
+          alias: 名称
+        - name: description
+          alias: 描述
+        - name: groupId
+          alias: 分组ID
+        - name: updateTime
+          alias: 更新时间
+          format: datetime
+  get:
+    description: 区域详情
+    http:
+      method: GET
+      path: region/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 区域 ID
+  create:
+    description: 创建区域
+    http:
+      method: POST
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 区域名称
+        - name: description
+          type: string
+          default: ""
+          description: 区域描述
+        - name: group_id
+          field: groupId
+          type: int
+          default: -1
+          description: 分组ID
+        - name: server_url
+          field: serverUrl
+          type: string
+          description: 服务地址
+        - name: dc_urls
+          field: dcUrls
+          type: string
+          description: DC 地址
+        - name: dc_agent_endpoints
+          field: dcAgentEndpoints
+          type: string
+          description: Agent 端点
+        - name: dc_agent_event_host
+          field: dcAgentEventHost
+          type: string
+          description: Agent 事件地址
+        - name: docker_keta_agent_address
+          field: dockerKetaAgentAddress
+          type: string
+          description: Docker 镜像地址
+        - name: trace_urls
+          field: traceUrls
+          type: string
+          description: 链路追踪地址
+        - name: grpc_query_urls
+          field: grpcQueryUrls
+          type: string
+          description: gRPC 查询地址
+    request_body:
+      name: '{{ name }}'
+      description: '{{ description | default("") }}'
+      groupId: '{{ group_id | default(-1) }}'
+      serverUrl: '{{ server_url | default("") }}'
+      dcUrls: '{{ dc_urls | default("") }}'
+      dcAgentEndpoints: '{{ dc_agent_endpoints | default("") }}'
+      dcAgentEventHost: '{{ dc_agent_event_host | default("") }}'
+      dockerKetaAgentAddress: '{{ docker_keta_agent_address | default("") }}'
+      traceUrls: '{{ trace_urls | default("") }}'
+      grpcQueryUrls: '{{ grpc_query_urls | default("") }}'
+  update:
+    description: 更新区域
+    http:
+      method: PUT
+      path: region/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 区域 ID
+      body:
+        - name: name
+          type: string
+          description: 区域名称
+        - name: description
+          type: string
+          description: 区域描述
+        - name: group_id
+          field: groupId
+          type: int
+          description: 分组ID
+        - name: server_url
+          field: serverUrl
+          type: string
+          description: 服务地址
+        - name: dc_urls
+          field: dcUrls
+          type: string
+          description: DC 地址
+        - name: dc_agent_endpoints
+          field: dcAgentEndpoints
+          type: string
+          description: Agent 端点
+        - name: dc_agent_event_host
+          field: dcAgentEventHost
+          type: string
+          description: Agent 事件地址
+        - name: docker_keta_agent_address
+          field: dockerKetaAgentAddress
+          type: string
+          description: Docker 镜像地址
+        - name: trace_urls
+          field: traceUrls
+          type: string
+          description: 链路追踪地址
+        - name: grpc_query_urls
+          field: grpcQueryUrls
+          type: string
+          description: gRPC 查询地址
+  delete:
+    description: 删除区域
+    http:
+      method: POST
+      path: region:batchDelete
+    params:
+      body:
+        - name: asset_id
+          field: ids
+          type: string
+          required: true
+          multiple: true
+          description: 区域 ID (可多次传递)
+    request_body:
+      ids: '{{ asset_id | tojson }}'

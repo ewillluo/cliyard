@@ -42,6 +42,11 @@ _MAIN_PY_TEMPLATE = """\
 \"\"\"CLI entry point. Edit this file to customize commands.\"\"\"
 import sys
 from pathlib import Path
+try:
+    from importlib.metadata import version, PackageNotFoundError
+    _VER = version("{pkg_name}")
+except PackageNotFoundError:
+    _VER = "0.0.0"
 from click.exceptions import UsageError
 from cliyard.runtime import create_cli
 
@@ -50,7 +55,7 @@ _SPEC_DIR = Path(__file__).parent / "specs"
 
 def main():
     try:
-        cli = create_cli(str(_SPEC_DIR))
+        cli = create_cli(str(_SPEC_DIR), version=_VER)
         sys.exit(cli(standalone_mode=False))
     except UsageError as e:
         sys.exit(e.format_message())
@@ -191,6 +196,42 @@ methods:
 The plugin function receives ``params`` (validated CLI args), ``http_client``
 (authenticated), and ``config`` (from YAML). The return value is JSON output.
 
+## Top-level command plugins
+
+For standalone commands that don't belong to any resource group (e.g. ``search``,
+``mock``, ``insert``), use ``@register_command``:
+
+```python
+# src/{pkg_name}/specs/plugins/mycmd.py
+import click
+from cliyard.plugin import register_command
+
+@register_command("mycmd")
+def register_mycmd(cli, ctx):
+    @click.command("mycmd")
+    @click.argument("input")
+    @click.option("--verbose", is_flag=True)
+    def mycmd(input, verbose):
+        \"\"\"My custom top-level command.\"\"\"
+        click.echo(f"Input: {input}")
+
+    cli.add_command(mycmd)
+```
+
+The function receives the top-level ``cli`` (``click.Group``) and ``ctx``
+(``ServiceContext`` containing base_url, auth config, etc.). Call
+``cli.add_command(...)`` with your built Click command.
+
+### Available plugin decorators
+
+| Decorator | Purpose |
+|-----------|---------|
+| ``@register_auth_step("name")`` | Custom authentication step (referenced in ``_auth.yaml``) |
+| ``@register_field_type("name")`` | Custom field type validator |
+| ``@register_hook("name")`` | Pre/post request hook |
+| ``@register_method("name")`` | Multi-step business method (referenced in YAML via ``type: plugin:xxx``) |
+| ``@register_command("name")`` | **Top-level Click command** (not tied to any resource) |
+
 ## Multiple environments
 
 ```bash
@@ -283,7 +324,7 @@ server:
 
     # 5. Generate src/<pkg_name>/main.py (thin wrapper around create_cli)
     main_path = src_dir / "main.py"
-    main_path.write_text(_MAIN_PY_TEMPLATE)
+    main_path.write_text(_MAIN_PY_TEMPLATE.format(pkg_name=pkg_name))
     click.echo(f"✔ Generated src/{pkg_name}/main.py")
 
     # 6. Copy spec files (skip if already in specs_dir)

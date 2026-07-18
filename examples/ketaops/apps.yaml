@@ -1,0 +1,88 @@
+name: app
+description: 应用管理
+path: apps/local
+methods:
+  list:
+    description: 已安装应用列表
+    http:
+      method: GET
+      path: apps/local
+    params:
+      query:
+        - name: pageNo
+          field: pageNo
+          type: int
+          default: 1
+          description: 页码
+        - name: pageSize
+          field: pageSize
+          type: int
+          default: 20
+          description: 每页条数
+    output:
+      items_path: $.apps
+      fields:
+        - name: name
+          alias: 应用名称
+        - name: title
+          alias: 应用标题
+        - name: description
+          alias: 应用描述
+        - name: version
+          alias: 应用版本
+        - name: latestVersion
+          alias: 最新应用版本
+  uninstall:
+    description: 卸载应用
+    http:
+      method: PUT
+      path: apps/{{ name }}/uninstall
+    params:
+      path:
+        - name: name
+          type: string
+          required: true
+          description: 应用名称
+  download:
+    description: 下载应用文件
+    http:
+      method: GET
+      path: apps/{{ name }}/export
+    params:
+      path:
+        - name: name
+          type: string
+          required: true
+          description: 应用名称
+      query:
+        - name: object_type
+          field: objectType
+          type: string
+          default: all_objects
+          description: 导出对象类型 (all_objects/dashboards/searches 等)
+    response_type: file
+  import:
+    description: 导入/安装应用
+    http:
+      method: POST
+      path: apps/import
+    body_type: multipart
+    hooks:
+      pre:
+        - keta_upload
+    params:
+      body:
+        - name: file
+          type: file
+          required: true
+          description: 应用文件 (.zip)
+        - name: upgrade
+          type: bool
+          default: false
+          description: 是否覆盖已存在的应用
+        - name: overwrite_type
+          field: overwriteType
+          type: enum
+          choices: [overwriteObjects, skipExisting]
+          default: overwriteObjects
+          description: 覆盖方式

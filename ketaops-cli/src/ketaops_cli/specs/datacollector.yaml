@@ -1,0 +1,214 @@
+description: 采集任务配置管理
+path: dc/collector/config
+methods:
+  list:
+    description: 采集任务配置列表
+    http:
+      method: GET
+      path: dc/collector/config
+    output:
+      items_path: $.configs
+      fields:
+        - name: id
+          alias: ID
+        - name: name
+          alias: 名称
+        - name: description
+          alias: 描述
+        - name: enabled
+          alias: 是否开启
+        - name: type
+          alias: 采集类型
+        - name: app
+          alias: 所属应用
+        - name: updateTime
+          alias: 更新时间
+  get:
+    description: 采集任务配置详情
+    http:
+      method: GET
+      path: dc/collector/config/{{ id }}
+    params:
+      path:
+        - name: id
+          type: string
+          required: true
+          description: 采集配置 ID
+  create:
+    description: 创建采集任务配置
+    http:
+      method: POST
+      path: dc/collector/config
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 采集任务名称
+        - name: description
+          type: string
+          description: 采集任务描述
+        - name: sync_frequency
+          field: syncFrequency
+          type: string
+          default: 1m
+          description: 同步频率
+        - name: collect_type_id
+          field: collectTypeId
+          type: string
+          default: b8c70d36-4494-47b3-8bf5-a1c2e64a2f84
+          description: 采集类型ID
+        - name: app
+          type: string
+          default: base_collect
+          description: 所属应用
+        - name: config
+          type: file
+          required: true
+          description: 采集配置文件路径(YAML/JSON)
+    request_body:
+      name: '{{ name }}'
+      description: '{{ description | default("") }}'
+      enabled: true
+      groupIds: []
+      sync_frequency: '{{ sync_frequency | default("1m") }}'
+      runtime: []
+      interact:
+        collect_type_id: '{{ collect_type_id | default("b8c70d36-4494-47b3-8bf5-a1c2e64a2f84") }}'
+        enable: false
+        reader_views: []
+        sender_views: []
+        transformers: []
+      app: '{{ app | default("base_collect") }}'
+      config: '{{ config }}'
+  update:
+    description: 更新采集任务配置
+    http:
+      method: PUT
+      path: dc/collector/config/{{ id }}
+    params:
+      path:
+        - name: id
+          type: string
+          required: true
+          description: 采集配置 ID
+      body:
+        - name: name
+          type: string
+          description: 采集任务名称
+        - name: description
+          type: string
+          description: 采集任务描述
+        - name: enabled
+          type: bool
+          description: 是否启用
+        - name: type
+          type: string
+          description: 采集类型
+        - name: app
+          type: string
+          description: 所属应用
+        - name: sync_frequency
+          field: syncFrequency
+          type: string
+          description: 同步频率
+        - name: collect_type_id
+          field: collectTypeId
+          type: string
+          description: 采集类型ID
+        - name: config
+          type: string
+          description: 采集配置内容
+    request_body:
+      name: '{{ name | default("") }}'
+      description: '{{ description | default("") }}'
+      enabled: '{{ enabled | default(true) }}'
+      type: '{{ type | default("default") }}'
+      app: '{{ app | default("base_collect") }}'
+      groupIds: []
+      sync_frequency: '{{ sync_frequency | default("1m") }}'
+      runtime: []
+      interact:
+        collect_type_id: '{{ collect_type_id | default("b8c70d36-4494-47b3-8bf5-a1c2e64a2f84") }}'
+        enable: false
+        reader_views: []
+        sender_views: []
+        transformers: []
+      config: '{{ config | default("") }}'
+  delete:
+    description: 删除采集任务配置
+    http:
+      method: POST
+      path: dc/collector/config:batchDelete
+    params:
+      body:
+        - name: id
+          type: string
+          required: true
+          multiple: true
+          description: 采集配置 ID (可多次传递)
+    request_body:
+      ids:
+        - '{{ id }}'
+  owner:
+    description: 变更采集任务配置所有者
+    http:
+      method: PUT
+      path: auth/knowledge/owner/bulk/dc_collector_config_client
+    params:
+      body:
+        - name: owner
+          type: string
+          required: true
+          description: 新的所有者用户名
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 采集任务ID列表（逗号分隔）
+    request_body:
+      owner: '{{ owner }}'
+      assetId: '{{ asset_id | default([]) }}'
+  grant:
+    description: 授权采集任务配置
+    http:
+      method: PUT
+      path: auth/knowledge/bulk/dc_collector_config_client
+    params:
+      body:
+        - name: grant
+          type: string
+          required: true
+          multiple: true
+          description: "授权项，格式 role:op1,op2,..."
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 采集配置 ID（可重复传递）
+        - name: scope
+          type: string
+          default: global
+          description: 授权范围
+        - name: app
+          type: string
+          default: search
+          description: 应用名
+    request_body:
+      resourceIds: '{{ asset_id | default([]) }}'
+      rolePerms: '{{ grant | default([]) }}'
+      scope: '{{ scope | default("global") }}'
+      app: '{{ app | default("search") }}'
+  authority:
+    description: 查看采集任务配置权限
+    http:
+      method: GET
+      path: auth/knowledge/dc_collector_config_client/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 采集配置 ID

@@ -1,0 +1,209 @@
+name: targettype
+description: 运维资产对象类型
+path: target/targetTypes
+methods:
+  list:
+    description: 运维资产对象类型列表
+    http:
+      method: GET
+    params:
+      query:
+        - name: pageNo
+          field: pageNo
+          type: int
+          default: 1
+          description: 页码
+        - name: pageSize
+          field: pageSize
+          type: int
+          default: 20
+          description: 每页条数
+    output:
+      items_path: $.targetTypes
+      fields:
+        - name: id
+          alias: ID
+        - name: name
+          alias: 名称
+        - name: displayName
+          alias: 显示名称
+        - name: parentId
+          alias: 父ID
+        - name: createTime
+          alias: 创建时间
+        - name: updateTime
+          alias: 更新时间
+  get:
+    description: 运维资产对象类型详情
+    http:
+      method: GET
+      path: target/targetTypes/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 目标类型 ID
+  create:
+    description: 创建运维资产对象类型
+    http:
+      method: POST
+    params:
+      body:
+        - name: name
+          type: string
+          default: target_type_name
+          description: 目标类型名称
+        - name: parent_id
+          field: parentId
+          type: string
+          description: 父级ID
+        - name: display_name
+          field: displayName
+          type: string
+          default: Target Type Display Name
+          description: 显示名称
+        - name: identity_display_name
+          field: identityDisplayName
+          type: string
+          description: 身份字段显示名称
+        - name: identity_type
+          field: identityType
+          type: string
+          default: TEXT
+          description: 身份字段类型
+        - name: name_display_name
+          field: nameDisplayName
+          type: string
+          description: 名称字段显示名称
+        - name: property_display_name
+          field: propertyDisplayName
+          type: string
+          description: 属性字段显示名称
+        - name: log_filter
+          field: logFilter
+          type: string
+          default: "'id'=\"{{id}}\""
+          description: 日志过滤条件
+        - name: trace_filter
+          field: traceFilter
+          type: string
+          default: "'id'=\"{{id}}\""
+          description: 链路过滤条件
+        - name: icon
+          type: string
+          default: serve_norm
+          description: 图标名称
+        - name: app
+          type: string
+          default: keta-it-asset
+          description: 所属应用
+    request_body:
+      name: '{{ name | default("target_type_name") }}'
+      parentId: '{{ parent_id | default("") }}'
+      displayName: '{{ display_name | default("Target Type Display Name") }}'
+      identityFields:
+        - name: id
+          displayName: '{{ identity_display_name | default("") }}'
+          type: '{{ identity_type | default("TEXT") }}'
+          required: true
+      nameFields:
+        - name: name
+          displayName: '{{ name_display_name | default("") }}'
+          type: TEXT
+          required: true
+      propertyFields:
+        - displayName: '{{ property_display_name | default("") }}'
+          name: attr
+          required: false
+          type: TEXT
+      metricGroupIds: []
+      requiredMetrics: {}
+      showMetrics: {}
+      actions: []
+      logFilter:
+        filter: '{{ log_filter | default("''id''=\"{{id}}\"") }}'
+      traceFilter:
+        filter: '{{ trace_filter | default("''id''=\"{{id}}\"") }}'
+        repoNames: []
+        associativeSwitch: false
+      icon: '{{ icon | default("serve_norm") }}'
+      app: '{{ app | default("keta-it-asset") }}'
+      parentMetrics: []
+  delete:
+    description: 删除运维资产对象类型
+    http:
+      method: POST
+      path: target/targetTypes:batchDelete
+    params:
+      body:
+        - name: id
+          type: string
+          required: true
+          multiple: true
+          description: 目标类型 ID (可多次传递)
+    request_body:
+      ids:
+        - '{{ id }}'
+  owner:
+    description: 变更运维资产对象类型所有者
+    http:
+      method: PUT
+      path: auth/knowledge/owner/bulk/target_type
+    params:
+      body:
+        - name: owner
+          type: string
+          required: true
+          description: 新的所有者用户名
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 目标类型ID列表（逗号分隔）
+    request_body:
+      owner: '{{ owner }}'
+      assetId: '{{ asset_id | default([]) }}'
+  grant:
+    description: 授权运维资产对象类型
+    http:
+      method: PUT
+      path: auth/knowledge/bulk/target_type
+    params:
+      body:
+        - name: grant
+          type: string
+          required: true
+          multiple: true
+          description: "授权项，格式 role:op1,op2,..."
+        - name: asset_id
+          field: assetId
+          type: string
+          required: true
+          multiple: true
+          description: 目标类型 ID（可重复传递）
+        - name: scope
+          type: string
+          default: global
+          description: 授权范围
+        - name: app
+          type: string
+          default: search
+          description: 应用名
+    request_body:
+      resourceIds: '{{ asset_id | default([]) }}'
+      rolePerms: '{{ grant | default([]) }}'
+      scope: '{{ scope | default("global") }}'
+      app: '{{ app | default("search") }}'
+  authority:
+    description: 查看运维资产对象类型权限
+    http:
+      method: GET
+      path: auth/knowledge/target_type/{{ asset_id }}
+    params:
+      path:
+        - name: asset_id
+          type: string
+          required: true
+          description: 目标类型 ID

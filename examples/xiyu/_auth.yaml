@@ -1,0 +1,21 @@
+name: xiyu
+version: "1.0"
+description: xiyu API
+server:
+  base_url: http://localhost:8080
+auth:
+  params:
+    username: XIYU_USER
+    password: XIYU_PASS
+  steps:
+    - name: token
+      type: env
+      config:
+        name: XIYU_TOKEN
+    - name: inject_token
+      type: inject
+      config:
+        source: token
+        into: header
+        name: Authorization
+        prefix: "Bearer "

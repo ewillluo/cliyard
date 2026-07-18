@@ -5,6 +5,7 @@ Extension points:
 - types: Custom field types (validation + conversion)
 - hooks: Custom pre/post request processing hooks
 - methods: Custom business logic methods (multi-step API calls)
+- commands: Custom top-level Click commands
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ class PluginRegistry:
     _field_types: dict[str, type] = {}
     _hooks: dict[str, Callable] = {}
     _methods: dict[str, Callable] = {}
+    _commands: dict[str, Callable] = {}
     _loaded: bool = False
 
     @classmethod
@@ -55,6 +57,15 @@ class PluginRegistry:
         cls._methods[name] = method_fn
 
     @classmethod
+    def register_command(cls, name: str, command_fn: Callable) -> None:
+        """Register a custom top-level Click command builder.
+
+        The function receives ``(cli, ctx)`` where *cli* is the top-level
+        ``click.Group`` and *ctx* is the ``ServiceContext``.
+        """
+        cls._commands[name] = command_fn
+
+    @classmethod
     def get_auth_step(cls, name: str) -> type | None:
         return cls._auth_steps.get(name)
 
@@ -71,11 +82,20 @@ class PluginRegistry:
         return cls._methods.get(name)
 
     @classmethod
+    def get_command(cls, name: str) -> Callable | None:
+        return cls._commands.get(name)
+
+    @classmethod
+    def get_all_commands(cls) -> dict[str, Callable]:
+        return dict(cls._commands)
+
+    @classmethod
     def clear(cls) -> None:
         cls._auth_steps.clear()
         cls._field_types.clear()
         cls._hooks.clear()
         cls._methods.clear()
+        cls._commands.clear()
         cls._loaded = False
 
 
@@ -118,5 +138,17 @@ def register_method(name: str):
     """
     def decorator(fn):
         PluginRegistry.register_method(name, fn)
+        return fn
+    return decorator
+
+
+def register_command(name: str):
+    """Decorator that registers a function as a top-level command builder.
+
+    The function receives ``(cli, ctx)`` and should call
+    ``cli.add_command(...)`` with the built Click command.
+    """
+    def decorator(fn):
+        PluginRegistry.register_command(name, fn)
         return fn
     return decorator

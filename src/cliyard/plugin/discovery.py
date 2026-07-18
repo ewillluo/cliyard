@@ -81,18 +81,14 @@ def _discover_entry_points() -> None:
 
 
 def _discover_directory(plugins_dir: Path) -> None:
-    """Scan a directory for ``.py`` plugin files and import them.
-
-    Each file's import triggers its ``@register_*`` decorators, which
-    automatically register the plugin with ``PluginRegistry``.
-
-    Ignores files starting with ``_`` and ``setup.py``.
-
-    Args:
-        plugins_dir: Directory path to scan.
-    """
+    """Scan a directory for ``.py`` plugin files and import them."""
     if not plugins_dir.is_dir():
         return
+
+    # Add plugins dir to sys.path so subdirectory packages can be imported
+    plugins_dir_str = str(plugins_dir)
+    if plugins_dir_str not in sys.path:
+        sys.path.insert(0, plugins_dir_str)
 
     for py_file in sorted(plugins_dir.glob("*.py")):
         if py_file.name.startswith("_") or py_file.name == "setup.py":

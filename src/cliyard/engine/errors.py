@@ -16,7 +16,10 @@ class ValidationError(CliyError):
         self.field = field
         self.value = value
         self.reason = reason
-        super().__init__(f"{field}: {reason} (got {value!r})")
+        if value is None or (isinstance(value, tuple) and not value):
+            super().__init__(f"{field}: {reason}")
+        else:
+            super().__init__(f"{field}: {reason} (got {value!r})")
 
 
 class AuthError(CliyError):

@@ -1,0 +1,65 @@
+name: dc-task
+description: KetaAgent 采集任务分发
+path: dc/collector/task
+methods:
+  create:
+    description: 创建采集任务分发
+    http:
+      method: POST
+      path: dc/collector/task
+    params:
+      body:
+        - name: config_id
+          field: configId
+          type: string
+          required: true
+          description: 采集配置ID
+        - name: tag_id
+          field: tagId
+          type: string
+          required: true
+          description: 标签ID
+        - name: enabled
+          type: bool
+          default: true
+          description: 是否启用
+        - name: description
+          type: string
+          description: 任务描述
+        - name: assign_type
+          field: assignType
+          type: string
+          default: all
+          description: 分配类型
+        - name: schedule
+          type: bool
+          default: false
+          description: 是否启用调度
+        - name: schedule_option_size
+          field: scheduleOptionSize
+          type: int
+          default: 0
+          description: 调度选项大小
+        - name: agent_ids
+          field: agentIds
+          type: string
+          multiple: true
+          description: Agent ID列表
+        - name: full_assign
+          field: fullAssign
+          type: bool
+          default: false
+          description: 是否全量分配
+    request_body:
+      configIds:
+        - '{{ config_id }}'
+      tagIds:
+        - '{{ tag_id }}'
+      enabled: '{{ enabled | default(true) }}'
+      description: '{{ description | default("") }}'
+      assignType: '{{ assign_type | default("all") }}'
+      schedule: '{{ schedule | default(false) }}'
+      scheduleOption:
+        size: '{{ schedule_option_size | default(0) }}'
+      agentIds: '{{ agent_ids | default([]) }}'
+      fullAssign: '{{ full_assign | default(false) }}'

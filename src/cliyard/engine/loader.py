@@ -80,8 +80,9 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
                     f"{yaml_file}: 'methods' is required and must be a mapping"
                 )
 
-            # Tag with resource name for downstream use
-            resource_spec["name"] = resource_name
+            # Tag with resource name for downstream use (YAML name > filename)
+            if "name" not in resource_spec:
+                resource_spec["name"] = resource_name
             resources.append(resource_spec)
 
     # Ensure auth defaults to empty steps

@@ -1,0 +1,25 @@
+name: ketacliv2
+version: "1.0"
+description: KetaDB repos resource (cliyard example)
+server:
+  base_url: http://localhost:8080
+  prefix: /api/v1
+auth:
+  id: ketacli-repos
+  steps:
+    - name: token
+      type: env
+      config:
+        name: KETA_SERVICE_TOKEN
+    - name: inject_token
+      type: inject
+      config:
+        source: token
+        into: header
+        name: Authorization
+        prefix: "Bearer "
+  persist:
+    to: cliyard-config
+    fields:
+      token:
+        from: token

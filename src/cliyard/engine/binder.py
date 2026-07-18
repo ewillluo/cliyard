@@ -28,7 +28,7 @@ from cliyard.validate.types import (
     validate_field,
 )
 
-_LOCATIONS = ("path", "query", "header", "body")
+_LOCATIONS = ("argument", "path", "query", "header", "body")
 
 
 @dataclass
@@ -36,12 +36,14 @@ class ValidatedParams:
     """Parameters grouped by HTTP location, ready for request assembly.
 
     Attributes:
+        argument: Positional CLI arguments (e.g. SPL query string).
         path: Path template variables (e.g. ``{"id": 42}``).
         query: Query string parameters (e.g. ``{"limit": 10}``).
         header: Request headers (e.g. ``{"Authorization": "Bearer ..."}``).
         body: Request body template values.
     """
 
+    argument: dict[str, Any] = field(default_factory=dict)
     path: dict[str, Any] = field(default_factory=dict)
     query: dict[str, Any] = field(default_factory=dict)
     header: dict[str, Any] = field(default_factory=dict)
@@ -79,8 +81,9 @@ def bind_and_validate(kwargs: dict[str, Any], method_spec: dict[str, Any]) -> Va
             name = field_spec["name"]
             value = kwargs.get(name)
 
-            # Required check
-            if value is None and field_spec.get("required"):
+            # Required check (multiple=True passes () not None)
+            is_missing = value is None or (field_spec.get("multiple") and value == ())
+            if is_missing and field_spec.get("required"):
                 raise ValidationError(name, value, "required")
 
             # Apply default if not provided

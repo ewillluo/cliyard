@@ -1,0 +1,44 @@
+name: dc-preview
+description: KetaAgent 采集任务预览
+path: dc/collector/preview
+methods:
+  create:
+    description: 采集任务预览
+    http:
+      method: POST
+    params:
+      body:
+        - name: agent_id
+          field: agentId
+          type: string
+          required: true
+          description: Agent ID
+        - name: batch_size
+          field: batchSize
+          type: int
+          default: 1048576
+          description: 每批大小
+        - name: batch_num
+          field: batchNum
+          type: int
+          default: 1
+          description: 批次数
+        - name: timeout
+          type: int
+          default: 10
+          description: 超时时间(秒)
+        - name: interval
+          type: int
+          default: 1
+          description: 采集间隔(秒)
+        - name: config
+          type: string
+          required: true
+          description: 采集配置内容
+    request_body:
+      agentIds: ['{{ agent_id }}']
+      batchSize: '{{ batch_size | default(1048576) }}'
+      batchNum: '{{ batch_num | default(1) }}'
+      timeout: '{{ timeout | default(10) }}'
+      interval: '{{ interval | default(1) }}'
+      config: '{{ config }}'

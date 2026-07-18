@@ -1,0 +1,39 @@
+description: 联系人管理
+methods:
+  update:
+    description: 更新联系人
+    http:
+      method: POST
+      path: /supplier-customer-import/update-supplier-contact
+    params:
+      body:
+      - name: id
+        type: int
+        description: ID
+        required: true
+      - name: contactPerson
+        type: string
+        description: 联系人
+      - name: position
+        type: string
+        description: 职务
+      - name: email
+        type: string
+        description: 邮箱
+      - name: phoneNumber
+        type: string
+        description: 联系方式
+      - name: originType
+        type: int
+        description: 来源 1-CRM 2-PDM
+      - name: platformBusinessType
+        type: int
+        description: 业务类型
+    request_body:
+      contactPerson: '{{ contactPerson }}'
+      email: '{{ email }}'
+      id: '{{ id }}'
+      originType: '{{ originType }}'
+      phoneNumber: '{{ phoneNumber }}'
+      platformBusinessType: '{{ platformBusinessType }}'
+      position: '{{ position }}'
