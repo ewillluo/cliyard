@@ -1,0 +1,11 @@
+group: admin
+name: plugins
+description: KetaDB 已安装插件
+path: admin/internal/_cat/plugins
+methods:
+  list:
+    description: KetaDB 已安装插件 - list
+    http:
+      method: GET
+      query:
+        format: json

@@ -1,4 +1,5 @@
-name: dc-preview-transformer
+group: dc
+name: preview-transformer
 description: KetaAgent 采集 Transformer 预览
 path: dc/collector/preview/transformer
 methods:

@@ -1,4 +1,5 @@
-name: dc-server-config
+group: dc
+name: server-config
 description: KetaAgent 采集服务端配置
 path: dc/collector/server/config
 methods:

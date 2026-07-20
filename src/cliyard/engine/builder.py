@@ -154,7 +154,8 @@ def _param_to_argument(param: dict[str, Any]) -> click.Argument:
     Returns:
         A ``click.Argument`` configured for this parameter.
     """
-    name: str = param["name"]
+    raw_name: str = param["name"]
+    name = raw_name
     type_str: str = param.get("type", "string")
 
     kwargs: dict[str, Any] = {}
@@ -256,6 +257,32 @@ def _make_callback(
                                 raise _CliyErr(f"Failed to read config file {_file_path}: {_e}")
                         # Re-bind after file read (re-validate)
                         validated = bind_and_validate(kwargs, method_spec)
+
+            # Stage 1b: resolve field-level plugins (e.g. dynamic defaults)
+            from cliyard.plugin import PluginRegistry as _Reg
+            from cliyard.plugin.discovery import discover_plugins as _disc
+
+            _disc()
+            for _loc in ("body", "query", "header", "path", "argument"):
+                for _param in method_spec.get("params", {}).get(_loc, []):
+                    _resolver_name = _param.get("resolver", "")
+                    if _resolver_name.startswith("plugin:"):
+                        _fn_name = _resolver_name[7:]
+                        _fn = _Reg.get_field_resolver(_fn_name)
+                        if _fn and (not kwargs.get(_param["name"])):
+                            from cliyard.client.http import HttpClient as _HC
+                            from cliyard.client.auth import run_auth_chain as _auth
+
+                            _cli = _HC(service_ctx.base_url)
+                            if service_ctx.auth_spec:
+                                _auth(service_ctx.auth_spec, http_client=_cli,
+                                      pre_filled=service_ctx.pre_filled_auth)
+                            kwargs[_param["name"]] = _fn(
+                                params=kwargs,
+                                http_client=_cli,
+                                config=_param.get("resolver_config", {}),
+                            )
+                            validated = bind_and_validate(kwargs, method_spec)
 
             merged_params: dict[str, Any] = {}
             # Nest params by location for assembler

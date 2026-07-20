@@ -1,3 +1,4 @@
+group: setting
 name: user
 description: 用户管理
 path: auth/users

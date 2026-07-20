@@ -1,0 +1,26 @@
+description: 授权痕迹
+methods:
+  list:
+    description: 分页查看-授权痕迹列表
+    http:
+      method: POST
+      path: /supplier-customer-import/page-list-auth-trace
+    params:
+      body:
+      - name: dxgsCode
+        type: string
+        description: 定向合作code
+      - name: brandAuthId
+        type: int
+        description: 品牌授权ID
+      - name: supplierCode
+        type: string
+        description: 供应商code
+      - name: brandId
+        type: int
+        description: 品牌ID
+    request_body:
+      brandAuthId: '{{ brandAuthId }}'
+      brandId: '{{ brandId }}'
+      dxgsCode: '{{ dxgsCode }}'
+      supplierCode: '{{ supplierCode }}'

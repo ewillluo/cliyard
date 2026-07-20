@@ -1,3 +1,5 @@
+group: asset
+name: sourcetype
 description: 来源类型管理
 path: sourcetype
 methods:
@@ -29,8 +31,10 @@ methods:
           alias: 描述
         - name: createTime
           alias: 创建时间
+          format: datetime
         - name: updateTime
           alias: 更新时间
+          format: datetime
   get:
     description: 来源类型详情
     http:

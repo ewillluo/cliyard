@@ -1,4 +1,5 @@
-name: dc-install-docker
+group: dc
+name: install-docker
 description: KetaAgent Docker 安装命令生成
 path: dc/install/docker
 methods:

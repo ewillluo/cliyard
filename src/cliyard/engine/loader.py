@@ -145,12 +145,14 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _is_resource_file(path: Path) -> bool:
-    """Check if a YAML file is a resource file (not _auth.yaml or _service.*.yaml)."""
+    """Check if a YAML file is a resource file (not config files)."""
     name = path.name
     if name == "_auth.yaml":
         return False
     if name.startswith("_service.") and name.endswith(".yaml"):
         return False
+    if name.startswith("_"):
+        return False  # _groups.yaml, _other config files
     return True
 
 

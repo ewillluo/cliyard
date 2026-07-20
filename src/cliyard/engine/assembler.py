@@ -173,7 +173,15 @@ def assemble_request(
             if name:
                 field_map[name] = field
 
-    # Static query params from spec
+    # Static query params from spec (dict format: {key: value})
+    spec_query_dict = http.get("query", {})
+    if isinstance(spec_query_dict, dict):
+        for k, v in spec_query_dict.items():
+            rendered = _render_value(v, params)
+            if rendered is not None and rendered != "":
+                query_params[k] = str(rendered)
+
+    # Static query params from spec (list format: [{field: name, default: val}])
     spec_query = http.get("query_params", [])
     if isinstance(spec_query, list):
         for qp in spec_query:

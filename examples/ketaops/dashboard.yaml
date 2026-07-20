@@ -1,3 +1,5 @@
+group: asset
+name: dashboard
 description: 仪表盘管理
 path: dashboard
 methods:

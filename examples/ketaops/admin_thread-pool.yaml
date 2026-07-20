@@ -1,0 +1,11 @@
+group: admin
+name: thread-pool
+description: KetaDB 线程池状态
+path: admin/internal/_cat/thread_pool
+methods:
+  list:
+    description: KetaDB 线程池状态 - list
+    http:
+      method: GET
+      query:
+        format: json

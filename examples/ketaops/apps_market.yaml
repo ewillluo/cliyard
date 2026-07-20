@@ -1,0 +1,84 @@
+group: app
+name: market
+description: 应用安装包市场
+path: package
+methods:
+  list:
+    description: 应用安装包列表
+    http:
+      method: GET
+      path: package/list
+    output:
+      items_path: $.items
+      fields:
+        - name: name
+          alias: 名称
+        - name: title
+          alias: 标题
+        - name: description
+          alias: 描述
+        - name: status
+          alias: 状态
+        - name: currentVersion
+          alias: 当前版本
+        - name: latestVersion
+          alias: 最新版本
+        - name: createTime
+          alias: 创建时间
+          format: datetime
+  create:
+    description: 安装应用
+    http:
+      method: POST
+      path: package/install
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 应用名称
+        - name: version
+          type: string
+          resolver: plugin:get_latest_version
+          description: 应用版本号
+    request_body:
+      appName: '{{ name }}'
+      version: '{{ version | default("") }}'
+  install:
+    description: 安装应用
+    http:
+      method: POST
+      path: package/install
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 应用名称
+        - name: version
+          type: string
+          resolver: plugin:get_latest_version
+          description: 应用版本号
+    request_body:
+      appName: '{{ name }}'
+      version: '{{ version | default("") }}'
+  upgrade:
+    description: 升级应用
+    http:
+      method: POST
+      path: package/install:batch
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 应用名称
+        - name: version
+          type: string
+          resolver: plugin:get_latest_version
+          description: 应用版本号
+    request_body:
+      overwriteType: overwriteObjects
+      installApps:
+        - appName: '{{ name }}'
+          version: '{{ version }}'

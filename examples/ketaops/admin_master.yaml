@@ -1,0 +1,11 @@
+group: admin
+name: master
+description: KetaDB 主节点信息
+path: admin/internal/_cat/master
+methods:
+  list:
+    description: KetaDB 主节点信息 - list
+    http:
+      method: GET
+      query:
+        format: json

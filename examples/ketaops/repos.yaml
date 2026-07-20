@@ -1,3 +1,4 @@
+group: asset
 name: repo
 description: 仓库管理
 path: repos

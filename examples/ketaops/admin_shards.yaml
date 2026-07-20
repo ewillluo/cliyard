@@ -1,0 +1,11 @@
+group: admin
+name: shards
+description: KetaDB 分片分布
+path: admin/internal/_cat/shards
+methods:
+  list:
+    description: KetaDB 分片分布 - list
+    http:
+      method: GET
+      query:
+        format: json

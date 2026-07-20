@@ -1,0 +1,11 @@
+group: admin
+name: cluster-stats
+description: KetaDB 集群统计
+path: admin/internal/_cluster/stats
+methods:
+  list:
+    description: KetaDB 集群统计 - list
+    http:
+      method: GET
+      query:
+        format: json

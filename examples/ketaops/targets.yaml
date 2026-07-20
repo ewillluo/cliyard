@@ -1,4 +1,5 @@
-name: target
+group: target
+name: manage
 description: 运维资产对象
 path: metric/targets
 methods:
@@ -19,7 +20,7 @@ methods:
           default: 20
           description: 每页条数
     output:
-      items_path: $.targets
+      items_path: $.items
       fields:
         - name: id
           alias: ID
@@ -37,6 +38,7 @@ methods:
           alias: 指标数量
         - name: updateTime
           alias: 更新时间
+          format: datetime
         - name: relationCount
           alias: 关联数量
   get:

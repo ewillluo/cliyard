@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"{pkg_name}" = ["specs/*.yaml", "specs/plugins/*.py"]
+"{pkg_name}" = ["specs/*.yaml", "specs/plugins/*.py", "specs/plugins/spl_parser/*.py"]
 """
 
 _MAIN_PY_TEMPLATE = """\

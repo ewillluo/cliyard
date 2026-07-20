@@ -1,0 +1,98 @@
+group: alert
+name: prototypes
+description: 告警模板
+path: alert_prototypes
+methods:
+  list:
+    description: 告警模板 - list
+    http:
+      method: GET
+    output:
+      items_path: $.items
+      fields:
+      - name: name
+        alias: 名称
+      - name: description
+        alias: 描述
+      - name: app
+        alias: 应用
+      - name: groupPathNames
+        alias: 告警分组路径
+  create:
+    description: 告警模板 - create
+    http:
+      method: POST
+    params:
+      body:
+      - name: name
+        type: string
+        description: '告警模板名称 (default: prototype_name)'
+      - name: description
+        type: string
+        description: '告警模板描述 (default: 空)'
+      - name: app
+        type: string
+        description: '所属应用 (default: search)'
+      - name: alertType
+        type: string
+        description: '告警类型 (default: metric)'
+      - name: condition
+        type: string
+        description: '告警条件 (default: 空)'
+      - name: target
+        type: string
+        description: '告警目标 (default: 空)'
+      - name: metric
+        type: string
+        description: '监控指标 (default: 空)'
+      - name: threshold
+        type: int
+        description: '阈值 (default: 0)'
+      - name: level
+        type: string
+        description: '告警级别 (default: warning)'
+  owner:
+    description: 告警模板 - owner
+    http:
+      method: PUT
+      path: auth/knowledge/owner/bulk/alert_prototype
+    params:
+      body:
+      - name: owner
+        type: string
+        description: 新的所有者用户名
+      - name: resource_ids
+        type: string
+        description: 告警模板ID列表（逗号分隔）
+  grant:
+    description: 告警模板 - grant
+    http:
+      method: PUT
+      path: auth/knowledge/bulk/alert_prototype
+    params:
+      body:
+      - name: grant
+        multiple: true
+        description: 授权项，格式 role:op1,op2,...（可重复，如 admin:list,edit,delete）
+      - name: asset_id
+        type: string
+        description: 告警模板 ID（可重复传递）
+      - name: scope
+        type: string
+        description: 授权范围：private(私有)/app(应用)/global(全局)，默认 global
+        default: global
+      - name: app
+        type: string
+        description: 应用名（默认 search）
+        default: search
+  authority:
+    description: 告警模板 - authority
+    http:
+      method: GET
+      path: auth/knowledge/alert_prototype/{{ asset_id }}
+    params:
+      path:
+      - name: asset_id
+        type: string
+        required: true
+        description: asset_id

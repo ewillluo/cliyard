@@ -6,6 +6,7 @@ Extension points:
 - hooks: Custom pre/post request processing hooks
 - methods: Custom business logic methods (multi-step API calls)
 - commands: Custom top-level Click commands
+- field_resolvers: Dynamic field value resolvers (e.g. get latest version)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ class PluginRegistry:
     _hooks: dict[str, Callable] = {}
     _methods: dict[str, Callable] = {}
     _commands: dict[str, Callable] = {}
+    _field_resolvers: dict[str, Callable] = {}
     _loaded: bool = False
 
     @classmethod
@@ -57,6 +59,24 @@ class PluginRegistry:
         cls._methods[name] = method_fn
 
     @classmethod
+    def register_field_resolver(cls, name: str, resolver_fn: Callable) -> None:
+        """Register a field resolver plugin.
+
+        The function receives ``(params, http_client, config)`` and returns
+        the resolved value for the field.
+
+        Usage in YAML::
+
+            params:
+              body:
+                - name: version
+                  type: string
+                  resolver: plugin:get_latest_version
+                  description: 应用版本号
+        """
+        cls._field_resolvers[name] = resolver_fn
+
+    @classmethod
     def register_command(cls, name: str, command_fn: Callable) -> None:
         """Register a custom top-level Click command builder.
 
@@ -82,6 +102,10 @@ class PluginRegistry:
         return cls._methods.get(name)
 
     @classmethod
+    def get_field_resolver(cls, name: str) -> Callable | None:
+        return cls._field_resolvers.get(name)
+
+    @classmethod
     def get_command(cls, name: str) -> Callable | None:
         return cls._commands.get(name)
 
@@ -96,6 +120,7 @@ class PluginRegistry:
         cls._hooks.clear()
         cls._methods.clear()
         cls._commands.clear()
+        cls._field_resolvers.clear()
         cls._loaded = False
 
 
@@ -143,12 +168,28 @@ def register_method(name: str):
 
 
 def register_command(name: str):
-    """Decorator that registers a function as a top-level command builder.
-
-    The function receives ``(cli, ctx)`` and should call
-    ``cli.add_command(...)`` with the built Click command.
-    """
+    """Decorator that registers a function as a top-level command builder."""
     def decorator(fn):
         PluginRegistry.register_command(name, fn)
+        return fn
+    return decorator
+
+
+def register_field_resolver(name: str):
+    """Decorator that registers a function as a field value resolver.
+
+    The function receives ``(params, http_client, config)`` and returns
+    the resolved value.
+
+    Usage in YAML::
+
+        params:
+          body:
+            - name: version
+              type: string
+              resolver: plugin:get_latest_version
+    """
+    def decorator(fn):
+        PluginRegistry.register_field_resolver(name, fn)
         return fn
     return decorator

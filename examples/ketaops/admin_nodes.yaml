@@ -1,0 +1,46 @@
+group: admin
+name: nodes
+description: KetaDB 节点列表
+path: admin/internal/_cat/nodes
+methods:
+  list:
+    description: KetaDB 节点列表 - list
+    http:
+      method: GET
+      query:
+        format: json
+    output:
+      items_path: $
+      fields:
+      - name: name
+        alias: 名称
+      - name: ip
+        alias: IP
+      - name: load_1m
+        alias: 1分钟负载
+      - name: load_5m
+        alias: 5分钟负载
+      - name: load_15m
+        alias: 15分钟负载
+      - name: heap.percent
+        alias: 堆内存占用百分比
+      - name: ram.percent
+        alias: 内存占用百分比
+      - name: cpu
+        alias: CPU占用百分比
+      - name: node.role
+        alias: 节点角色
+      - name: master
+        alias: 主节点
+  get:
+    description: KetaDB 节点列表 - get
+    http:
+      method: GET
+      path: admin/internal/_nodes/{{ name }}/settings
+      query:
+        format: json
+    params:
+      path:
+      - name: name
+        type: string
+        required: true

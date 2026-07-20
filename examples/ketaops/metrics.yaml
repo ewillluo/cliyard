@@ -1,3 +1,4 @@
+group: asset
 name: metric
 description: 指标管理
 path: metric/metrics
@@ -20,7 +21,7 @@ methods:
           default: 20
           description: 每页条数
     output:
-      items_path: $.metrics
+      items_path: $.items
       fields:
         - name: name
           alias: 名称
@@ -40,8 +41,10 @@ methods:
           alias: 来源
         - name: createTime
           alias: 创建时间
+          format: datetime
         - name: updateTime
           alias: 更新时间
+          format: datetime
   get:
     description: 指标详情
     http:

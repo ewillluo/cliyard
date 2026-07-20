@@ -1,0 +1,11 @@
+group: admin
+name: tasks
+description: KetaDB 集群任务
+path: admin/internal/_cat/tasks
+methods:
+  list:
+    description: KetaDB 集群任务 - list
+    http:
+      method: GET
+      query:
+        format: json

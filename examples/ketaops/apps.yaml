@@ -1,4 +1,5 @@
-name: app
+group: app
+name: manage
 description: 应用管理
 path: apps/local
 methods:

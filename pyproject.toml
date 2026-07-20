@@ -1,6 +1,6 @@
 [project]
 name = "cliyard"
-version = "0.1.0"
+version = "0.2.0"
 description = "YAML-driven CLI framework — turn any REST API into CLI commands"
 authors = []
 license = {text = "MIT"}

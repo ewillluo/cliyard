@@ -1,8 +1,0 @@
-name: dc-install-docker
-description: KetaAgent Docker 安装命令生成
-path: dc/install/docker
-methods:
-  get:
-    description: 生成 Docker 安装命令
-    http:
-      method: GET

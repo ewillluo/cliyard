@@ -1,4 +1,5 @@
-name: dc-token
+group: dc
+name: token
 description: KetaAgent 采集 Token
 path: dc/token
 methods:

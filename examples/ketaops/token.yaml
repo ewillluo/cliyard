@@ -1,3 +1,5 @@
+group: setting
+name: token
 description: API 访问令牌管理
 path: auth/tokens
 methods:
@@ -41,10 +43,12 @@ methods:
           alias: 最后访问IP
         - name: lastAccessTime
           alias: 最后访问时间
+          format: datetime
         - name: issuedAt
           alias: 发行时间
         - name: expireTime
           alias: 过期时间
+          format: datetime
   create:
     description: 创建令牌
     http:

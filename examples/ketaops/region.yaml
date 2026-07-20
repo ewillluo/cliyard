@@ -1,3 +1,4 @@
+group: setting
 name: region
 description: KetaAgent 区域管理
 path: region

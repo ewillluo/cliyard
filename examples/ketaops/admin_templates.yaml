@@ -1,0 +1,11 @@
+group: admin
+name: templates
+description: KetaDB 索引模板
+path: admin/internal/_cat/templates
+methods:
+  list:
+    description: KetaDB 索引模板 - list
+    http:
+      method: GET
+      query:
+        format: json

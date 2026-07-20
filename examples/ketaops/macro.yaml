@@ -1,3 +1,5 @@
+group: asset
+name: macro
 description: 搜索宏管理
 path: spl/macro
 methods:
@@ -41,8 +43,10 @@ methods:
           alias: 所有者
         - name: createTime
           alias: 创建时间
+          format: datetime
         - name: updateTime
           alias: 更新时间
+          format: datetime
   create:
     description: 创建搜索宏
     http:

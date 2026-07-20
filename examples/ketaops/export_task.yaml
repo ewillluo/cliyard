@@ -1,3 +1,4 @@
+group: asset
 name: export-task
 description: 导出任务
 path: export/task
@@ -36,8 +37,10 @@ methods:
           alias: SPL 查询
         - name: createTime
           alias: 创建时间
+          format: datetime
         - name: updateTime
           alias: 更新时间
+          format: datetime
   create:
     description: 创建导出任务
     http:

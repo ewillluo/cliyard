@@ -1,4 +1,5 @@
-name: dc-agent
+group: dc
+name: agent
 description: KetaAgent Agent实例
 path: dc/agent/list
 methods:
@@ -40,6 +41,7 @@ methods:
           alias: 运行时
         - name: updateTime
           alias: 更新时间
+          format: datetime
   detail:
     description: Agent实例详情
     http:

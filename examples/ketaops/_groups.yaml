@@ -1,0 +1,15 @@
+dc:
+  description: 数据采集与Agent管理
+asset:
+  description: 资产配置与管理
+setting:
+  description: 系统设置
+alert:
+  description: 告警与通知管理
+app:
+  description: 应用管理
+admin:
+  description: KetaDB 集群管理
+target:
+  description: 运维资产对象
+

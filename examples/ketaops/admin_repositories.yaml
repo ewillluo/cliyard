@@ -1,0 +1,11 @@
+group: admin
+name: repositories
+description: KetaDB 快照仓库
+path: admin/internal/_cat/repositories
+methods:
+  list:
+    description: KetaDB 快照仓库 - list
+    http:
+      method: GET
+      query:
+        format: json

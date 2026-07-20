@@ -1,0 +1,42 @@
+group: admin
+name: cluster
+description: KetaDB 集群状态
+path: admin/internal/_cat/health
+methods:
+  list:
+    description: KetaDB 集群状态 - list
+    http:
+      method: GET
+      query:
+        format: json
+    output:
+      items_path: $
+      fields:
+      - name: cluster
+        alias: 集群名称
+      - name: status
+        alias: 状态
+      - name: node.total
+        alias: 节点总数
+      - name: node.data
+        alias: 数据节点总数
+      - name: shards
+        alias: 分片总数
+      - name: pri
+        alias: 主分片总数
+      - name: relo
+        alias: 正在迁移的分片数
+      - name: init
+        alias: 正在初始化的分片数
+      - name: unassign
+        alias: 未分配分片数
+      - name: pending_tasks
+        alias: 待处理任务数
+      - name: max_task_wait_time
+        alias: 最大任务等待时间
+      - name: active_shards_percent
+        alias: 活动分片数占比
+      - name: epoch
+        alias: 集群状态版本
+      - name: timestamp
+        alias: 时间戳

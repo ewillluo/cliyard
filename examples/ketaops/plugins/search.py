@@ -8,6 +8,7 @@ Maps to the same API as ketacli search:
 Usage: ketaops-cli search 'search2 start="-1h" repo="logs" "error" | limit 10'
 """
 
+import json as _json
 import sys
 import time
 
@@ -17,7 +18,19 @@ from rich.live import Live
 
 from cliyard.output.formatter import format_rows_as_json, format_rows_as_table
 from cliyard.plugin import register_command
+from cliyard.engine.errors import ApiError as _ApiError
 from spl_parser.validate import validate_spl
+
+console = Console()
+
+
+def _api_msg(e: _ApiError) -> str:
+    """Extract a user-friendly message from an API error."""
+    try:
+        body = _json.loads(e.body)
+        return body.get("Message", e.body[:200])
+    except Exception:
+        return e.body[:200]
 
 console = Console()
 
@@ -33,7 +46,11 @@ def _exec(client, spl, limit, format_, raw, debug):
         "preview": False,
         "mode": "smart",
     }
-    resp = client.request("POST", "/api/v1/jobs", data=body)
+    try:
+        resp = client.request("POST", "/api/v1/jobs", data=body)
+    except _ApiError as e:
+        console.print(f"[red]查询错误:[/red] {_api_msg(e)}")
+        return None, True
     resp_data = resp.json()
 
     meta = resp_data.get("meta", {})
@@ -49,11 +66,19 @@ def _exec(client, spl, limit, format_, raw, debug):
             console.print("[red]Error:[/red] No job ID returned")
             return None, True
         while True:
-            status = client.request("GET", f"/api/v1/jobs/{job_id}").json()
+            try:
+                status = client.request("GET", f"/api/v1/jobs/{job_id}").json()
+            except _ApiError as e:
+                console.print(f"[red]查询错误:[/red] {_api_msg(e)}")
+                return None, True
             if status.get("process") == 1:
                 break
             time.sleep(0.2)
-        result = client.request("GET", f"/api/v1/jobs/{job_id}/results").json()
+        try:
+            result = client.request("GET", f"/api/v1/jobs/{job_id}/results").json()
+        except _ApiError as e:
+            console.print(f"[red]查询错误:[/red] {_api_msg(e)}")
+            return None, True
 
     if debug:
         duration = meta.get("duration", 0) or resp.elapsed.total_seconds() * 1000
@@ -103,7 +128,11 @@ def register_search(cli, ctx):
         if spl_errors:
             console.print("[red]SPL 语法错误:[/red]")
             for err in spl_errors:
-                console.print(f"  [red]行 {err['line']}, 列 {err['column']}: {err['message']}[/red]")
+                console.print(f"  [red]{err['message']}[/red]")
+                human = err.get("human_message")
+                orig = err.get("original_message")
+                if human and orig and human != orig:
+                    console.print(f"  [dim]原始错误: {orig}[/dim]")
             return
 
         client = HttpClient(ctx.base_url)

@@ -1,0 +1,112 @@
+group: alert
+name: user-groups
+description: 告警通知用户组
+path: beacon/notices
+methods:
+  list:
+    description: 告警通知用户组 - list
+    http:
+      method: GET
+      path: beacon/notices/userGroups
+    output:
+      items_path: $.userGroups
+      fields:
+      - name: id
+        alias: ID
+      - name: name
+        alias: 名称
+      - name: userCount
+        alias: 用户数
+      - name: scope
+        alias: 作用范围
+      - name: app
+        alias: 应用
+      - name: owner
+        alias: 所有者
+  create:
+    description: 告警通知用户组 - create
+    http:
+      method: POST
+      path: beacon/notices/userGroup
+    params:
+      body:
+      - name: name
+        type: string
+        description: 用户组名称 (必填)
+      - name: scope
+        type: string
+        description: '作用范围 (default: private)'
+      - name: userIds
+        type: string
+        description: '用户ID列表 (default: [])'
+  update:
+    description: 告警通知用户组 - update
+    http:
+      method: PUT
+      path: beacon/notices/userGroup/{{ id }}
+    params:
+      body:
+      - name: name
+        type: string
+        description: 用户组名称 (必填)
+      - name: scope
+        type: string
+        description: '作用范围 (default: private)'
+      - name: userIds
+        type: string
+        description: '用户ID列表 (default: [])'
+      path:
+      - name: id
+        type: string
+        required: true
+        description: id
+  delete:
+    description: 告警通知用户组 - delete
+    http:
+      method: POST
+      path: beacon/notices/userGroup/batchDelete
+  owner:
+    description: 告警通知用户组 - owner
+    http:
+      method: PUT
+      path: auth/knowledge/owner/bulk/alert_user_group
+    params:
+      body:
+      - name: owner
+        type: string
+        description: 新的所有者用户名
+      - name: resource_ids
+        type: string
+        description: 告警通知用户组ID列表（逗号分隔）
+  grant:
+    description: 告警通知用户组 - grant
+    http:
+      method: PUT
+      path: auth/knowledge/bulk/alert_user_group
+    params:
+      body:
+      - name: grant
+        multiple: true
+        description: 授权项，格式 role:op1,op2,...（可重复，如 admin:list,edit,delete）
+      - name: asset_id
+        type: string
+        description: 通知用户组 ID（可重复传递）
+      - name: scope
+        type: string
+        description: 授权范围：private(私有)/app(应用)/global(全局)，默认 global
+        default: global
+      - name: app
+        type: string
+        description: 应用名（默认 search）
+        default: search
+  authority:
+    description: 告警通知用户组 - authority
+    http:
+      method: GET
+      path: auth/knowledge/alert_user_group/{{ asset_id }}
+    params:
+      path:
+      - name: asset_id
+        type: string
+        required: true
+        description: asset_id

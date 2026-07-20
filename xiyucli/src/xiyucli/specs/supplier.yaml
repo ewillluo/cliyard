@@ -1,0 +1,779 @@
+description: 供应商管理
+methods:
+  create-category:
+    description: 创建供应商-品类/品牌/加盟
+    http:
+      method: POST
+      path: /supplier-customer-import/add-supplier-category
+    params:
+      body:
+      - name: isNewSupplier
+        type: bool
+        description: 是否新供应商
+        default: false
+      - name: businessLicense
+        type: string
+        description: 营业执照URL
+      - name: businessLicenseFileName
+        type: string
+        description: 营业执照文件名
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: supplierCode
+        type: string
+        description: 供应商编号
+      - name: taxIdNumber
+        type: string
+        description: 纳税识别号
+      - name: warehouseArea
+        type: string
+        description: 仓库面积
+      - name: storeArea
+        type: string
+        description: 门店面积
+      - name: provinceId
+        type: int
+        description: 办公所在地省ID
+      - name: provinceName
+        type: string
+        description: 办公所在地省
+      - name: cityId
+        type: int
+        description: 办公所在地市ID
+      - name: cityName
+        type: string
+        description: 办公所在地市
+      - name: detailAddress
+        type: string
+        description: 办公所在地详细地址
+      - name: signatoryName
+        type: string
+        description: 协议签署人姓名
+      - name: signatoryJob
+        type: string
+        description: 协议签署人职务
+      - name: signatoryJobStr
+        type: string
+        description: 协议签署人职务显示值
+      - name: signatoryEmail
+        type: string
+        description: 协议签署人邮箱
+      - name: signatoryPhone
+        type: string
+        description: 协议签署人手机号
+      - name: contactName
+        type: string
+        description: 联系人姓名
+      - name: position
+        type: string
+        description: 职务
+      - name: positionStr
+        type: string
+        description: 职务显示值
+      - name: email
+        type: string
+        description: 邮箱
+      - name: phoneNumber
+        type: string
+        description: 联系方式
+      - name: id
+        type: int
+        description: 主键ID
+      - name: applicationType
+        type: int
+        description: 类型，1供应商引入，2新增合作
+      - name: introduceAuditUserNo
+        type: string
+        description: 引入组审核人
+      - name: area
+        type: float
+        description: 自有/租赁仓库或门店面积
+      - name: annualIncome
+        type: float
+        description: 年报营业收入
+      - name: employNumber
+        type: int
+        description: 参保人数
+      - name: brandInfo_id
+        type: int
+        description: 品牌垂直业务申请信息Id
+      - name: brandInfo_introduceAuditUserNo
+        type: string
+        description: 引入组审核人
+      - name: annualIncome
+        type: float
+        description: 年报营业收入
+        required: true
+    request_body:
+      supplierBasicInfo:
+        isNewSupplier: '{{ supplierBasicInfo_isNewSupplier | default(False) }}'
+        businessLicense: '{{ supplierBasicInfo_businessLicense }}'
+        businessLicenseFileName: '{{ supplierBasicInfo_businessLicenseFileName }}'
+        supplierName: '{{ supplierBasicInfo_supplierName }}'
+        supplierCode: '{{ supplierBasicInfo_supplierCode }}'
+        taxIdNumber: '{{ supplierBasicInfo_taxIdNumber }}'
+        warehouseArea: '{{ supplierBasicInfo_warehouseArea }}'
+        storeArea: '{{ supplierBasicInfo_storeArea }}'
+        provinceId: '{{ supplierBasicInfo_provinceId }}'
+        provinceName: '{{ supplierBasicInfo_provinceName }}'
+        cityId: '{{ supplierBasicInfo_cityId }}'
+        cityName: '{{ supplierBasicInfo_cityName }}'
+        detailAddress: '{{ supplierBasicInfo_detailAddress }}'
+        signatoryName: '{{ supplierBasicInfo_signatoryName }}'
+        signatoryJob: '{{ supplierBasicInfo_signatoryJob }}'
+        signatoryJobStr: '{{ supplierBasicInfo_signatoryJobStr }}'
+        signatoryEmail: '{{ supplierBasicInfo_signatoryEmail }}'
+        signatoryPhone: '{{ supplierBasicInfo_signatoryPhone }}'
+        contactName: '{{ supplierBasicInfo_contactName }}'
+        position: '{{ supplierBasicInfo_position }}'
+        positionStr: '{{ supplierBasicInfo_positionStr }}'
+        email: '{{ supplierBasicInfo_email }}'
+        phoneNumber: '{{ supplierBasicInfo_phoneNumber }}'
+      categoryInfo:
+        id: '{{ categoryInfo_id }}'
+        applicationType: '{{ categoryInfo_applicationType }}'
+        introduceAuditUserNo: '{{ categoryInfo_introduceAuditUserNo }}'
+        area: '{{ categoryInfo_area }}'
+        annualIncome: '{{ categoryInfo_annualIncome }}'
+        employNumber: '{{ categoryInfo_employNumber }}'
+      brandInfo:
+        id: '{{ brandInfo_id }}'
+        introduceAuditUserNo: '{{ brandInfo_introduceAuditUserNo }}'
+      annualIncome: '{{ annualIncome }}'
+      categoryRegions: '{{ categoryRegions | default(''[]'') }}'
+      contactInfo: '{{ contactInfo | default(''[]'') }}'
+      supplierAuthorization: '{{ supplierAuthorization | default(''[]'') }}'
+      taxDoc: '{{ taxDoc | default(''[]'') }}'
+  create-introduce:
+    description: 创建供应商引入
+    http:
+      method: POST
+      path: /supplier-customer-import/add-supplier-introduce
+    params:
+      body:
+      - name: isNewSupplier
+        type: bool
+        description: 是否新供应商
+        default: false
+      - name: businessLicense
+        type: string
+        description: 营业执照URL
+      - name: businessLicenseFileName
+        type: string
+        description: 营业执照文件名
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: supplierCode
+        type: string
+        description: 供应商编号
+      - name: taxIdNumber
+        type: string
+        description: 纳税识别号
+      - name: warehouseArea
+        type: string
+        description: 仓库面积
+      - name: storeArea
+        type: string
+        description: 门店面积
+      - name: provinceId
+        type: int
+        description: 办公所在地省ID
+      - name: provinceName
+        type: string
+        description: 办公所在地省
+      - name: cityId
+        type: int
+        description: 办公所在地市ID
+      - name: cityName
+        type: string
+        description: 办公所在地市
+      - name: detailAddress
+        type: string
+        description: 办公所在地详细地址
+      - name: signatoryName
+        type: string
+        description: 协议签署人姓名
+      - name: signatoryJob
+        type: string
+        description: 协议签署人职务
+      - name: signatoryJobStr
+        type: string
+        description: 协议签署人职务显示值
+      - name: signatoryEmail
+        type: string
+        description: 协议签署人邮箱
+      - name: signatoryPhone
+        type: string
+        description: 协议签署人手机号
+      - name: contactName
+        type: string
+        description: 联系人姓名
+      - name: position
+        type: string
+        description: 职务
+      - name: positionStr
+        type: string
+        description: 职务显示值
+      - name: email
+        type: string
+        description: 邮箱
+      - name: phoneNumber
+        type: string
+        description: 联系方式
+      - name: groupCompanyId
+        type: int
+      - name: groupCompanyName
+        type: string
+      - name: cooperationProfit
+        type: float
+      - name: isGroupDimensionCooperation
+        type: int
+      - name: isEndorsementPayment
+        type: int
+      - name: id
+        type: int
+      - name: actualOrderingCompanyId
+        type: int
+      - name: brandInfo_id
+        type: int
+      - name: categoryInfo_id
+        type: int
+      - name: partnerInfo_id
+        type: int
+    request_body:
+      supplierBasicInfo:
+        isNewSupplier: '{{ supplierBasicInfo_isNewSupplier | default(False) }}'
+        businessLicense: '{{ supplierBasicInfo_businessLicense }}'
+        businessLicenseFileName: '{{ supplierBasicInfo_businessLicenseFileName }}'
+        supplierName: '{{ supplierBasicInfo_supplierName }}'
+        supplierCode: '{{ supplierBasicInfo_supplierCode }}'
+        taxIdNumber: '{{ supplierBasicInfo_taxIdNumber }}'
+        warehouseArea: '{{ supplierBasicInfo_warehouseArea }}'
+        storeArea: '{{ supplierBasicInfo_storeArea }}'
+        provinceId: '{{ supplierBasicInfo_provinceId }}'
+        provinceName: '{{ supplierBasicInfo_provinceName }}'
+        cityId: '{{ supplierBasicInfo_cityId }}'
+        cityName: '{{ supplierBasicInfo_cityName }}'
+        detailAddress: '{{ supplierBasicInfo_detailAddress }}'
+        signatoryName: '{{ supplierBasicInfo_signatoryName }}'
+        signatoryJob: '{{ supplierBasicInfo_signatoryJob }}'
+        signatoryJobStr: '{{ supplierBasicInfo_signatoryJobStr }}'
+        signatoryEmail: '{{ supplierBasicInfo_signatoryEmail }}'
+        signatoryPhone: '{{ supplierBasicInfo_signatoryPhone }}'
+        contactName: '{{ supplierBasicInfo_contactName }}'
+        position: '{{ supplierBasicInfo_position }}'
+        positionStr: '{{ supplierBasicInfo_positionStr }}'
+        email: '{{ supplierBasicInfo_email }}'
+        phoneNumber: '{{ supplierBasicInfo_phoneNumber }}'
+      groupCompany:
+        id: '{{ groupCompany_id }}'
+        groupCompanyId: '{{ groupCompany_groupCompanyId }}'
+        groupCompanyName: '{{ groupCompany_groupCompanyName }}'
+        cooperationProfit: '{{ groupCompany_cooperationProfit }}'
+        isGroupDimensionCooperation: '{{ groupCompany_isGroupDimensionCooperation }}'
+        isEndorsementPayment: '{{ groupCompany_isEndorsementPayment }}'
+      actualOrderingCompany:
+        id: '{{ actualOrderingCompany_id }}'
+        actualOrderingCompanyId: '{{ actualOrderingCompany_actualOrderingCompanyId }}'
+      brandInfo:
+        id: '{{ brandInfo_id }}'
+      categoryInfo:
+        id: '{{ categoryInfo_id }}'
+      partnerInfo:
+        id: '{{ partnerInfo_id }}'
+      categoryRegions: '{{ categoryRegions | default(''[]'') }}'
+      contactInfo: '{{ contactInfo | default(''[]'') }}'
+      partnerRegions: '{{ partnerRegions | default(''[]'') }}'
+      supplierAuthorization: '{{ supplierAuthorization | default(''[]'') }}'
+  update-introduce:
+    description: 编辑供应商引入
+    http:
+      method: POST
+      path: /supplier-customer-import/edit-supplier-introduce
+    params:
+      body:
+      - name: isNewSupplier
+        type: bool
+        description: 是否新供应商
+        default: false
+      - name: businessLicense
+        type: string
+        description: 营业执照URL
+      - name: businessLicenseFileName
+        type: string
+        description: 营业执照文件名
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: supplierCode
+        type: string
+        description: 供应商编号
+      - name: taxIdNumber
+        type: string
+        description: 纳税识别号
+      - name: warehouseArea
+        type: string
+        description: 仓库面积
+      - name: storeArea
+        type: string
+        description: 门店面积
+      - name: provinceId
+        type: int
+        description: 办公所在地省ID
+      - name: provinceName
+        type: string
+        description: 办公所在地省
+      - name: cityId
+        type: int
+        description: 办公所在地市ID
+      - name: cityName
+        type: string
+        description: 办公所在地市
+      - name: detailAddress
+        type: string
+        description: 办公所在地详细地址
+      - name: signatoryName
+        type: string
+        description: 协议签署人姓名
+      - name: signatoryJob
+        type: string
+        description: 协议签署人职务
+      - name: signatoryJobStr
+        type: string
+        description: 协议签署人职务显示值
+      - name: signatoryEmail
+        type: string
+        description: 协议签署人邮箱
+      - name: signatoryPhone
+        type: string
+        description: 协议签署人手机号
+      - name: contactName
+        type: string
+        description: 联系人姓名
+      - name: position
+        type: string
+        description: 职务
+      - name: positionStr
+        type: string
+        description: 职务显示值
+      - name: email
+        type: string
+        description: 邮箱
+      - name: phoneNumber
+        type: string
+        description: 联系方式
+      - name: groupCompanyId
+        type: int
+      - name: groupCompanyName
+        type: string
+      - name: cooperationProfit
+        type: float
+      - name: isGroupDimensionCooperation
+        type: int
+      - name: isEndorsementPayment
+        type: int
+      - name: id
+        type: int
+      - name: actualOrderingCompanyId
+        type: int
+      - name: brandInfo_id
+        type: int
+      - name: categoryInfo_id
+        type: int
+      - name: partnerInfo_id
+        type: int
+    request_body:
+      actualOrderingCompany_actualOrderingCompanyId: '{{ actualOrderingCompany_actualOrderingCompanyId }}'
+      actualOrderingCompany_id: '{{ actualOrderingCompany_id }}'
+      brandInfo_id: '{{ brandInfo_id }}'
+      categoryInfo_id: '{{ categoryInfo_id }}'
+      categoryRegions: '{{ categoryRegions | default(''[]'') }}'
+      contactInfo: '{{ contactInfo | default(''[]'') }}'
+      groupCompany_cooperationProfit: '{{ groupCompany_cooperationProfit }}'
+      groupCompany_groupCompanyId: '{{ groupCompany_groupCompanyId }}'
+      groupCompany_groupCompanyName: '{{ groupCompany_groupCompanyName }}'
+      groupCompany_id: '{{ groupCompany_id }}'
+      groupCompany_isEndorsementPayment: '{{ groupCompany_isEndorsementPayment }}'
+      groupCompany_isGroupDimensionCooperation: '{{ groupCompany_isGroupDimensionCooperation }}'
+      partnerInfo_id: '{{ partnerInfo_id }}'
+      partnerRegions: '{{ partnerRegions | default(''[]'') }}'
+      supplierAuthorization: '{{ supplierAuthorization | default(''[]'') }}'
+      supplierBasicInfo_businessLicense: '{{ supplierBasicInfo_businessLicense }}'
+      supplierBasicInfo_businessLicenseFileName: '{{ supplierBasicInfo_businessLicenseFileName }}'
+      supplierBasicInfo_cityId: '{{ supplierBasicInfo_cityId }}'
+      supplierBasicInfo_cityName: '{{ supplierBasicInfo_cityName }}'
+      supplierBasicInfo_contactName: '{{ supplierBasicInfo_contactName }}'
+      supplierBasicInfo_detailAddress: '{{ supplierBasicInfo_detailAddress }}'
+      supplierBasicInfo_email: '{{ supplierBasicInfo_email }}'
+      supplierBasicInfo_isNewSupplier: '{{ supplierBasicInfo_isNewSupplier | default(False) }}'
+      supplierBasicInfo_phoneNumber: '{{ supplierBasicInfo_phoneNumber }}'
+      supplierBasicInfo_position: '{{ supplierBasicInfo_position }}'
+      supplierBasicInfo_positionStr: '{{ supplierBasicInfo_positionStr }}'
+      supplierBasicInfo_provinceId: '{{ supplierBasicInfo_provinceId }}'
+      supplierBasicInfo_provinceName: '{{ supplierBasicInfo_provinceName }}'
+      supplierBasicInfo_signatoryEmail: '{{ supplierBasicInfo_signatoryEmail }}'
+      supplierBasicInfo_signatoryJob: '{{ supplierBasicInfo_signatoryJob }}'
+      supplierBasicInfo_signatoryJobStr: '{{ supplierBasicInfo_signatoryJobStr }}'
+      supplierBasicInfo_signatoryName: '{{ supplierBasicInfo_signatoryName }}'
+      supplierBasicInfo_signatoryPhone: '{{ supplierBasicInfo_signatoryPhone }}'
+      supplierBasicInfo_storeArea: '{{ supplierBasicInfo_storeArea }}'
+      supplierBasicInfo_supplierCode: '{{ supplierBasicInfo_supplierCode }}'
+      supplierBasicInfo_supplierName: '{{ supplierBasicInfo_supplierName }}'
+      supplierBasicInfo_taxIdNumber: '{{ supplierBasicInfo_taxIdNumber }}'
+      supplierBasicInfo_warehouseArea: '{{ supplierBasicInfo_warehouseArea }}'
+  detail-by-name:
+    description: 根据名称模糊查询供应商
+    http:
+      method: GET
+      path: /supplier-customer-import/get-supplier-info-like-name
+    params:
+      body: []
+      query:
+      - name: name
+        type: string
+        required: true
+  detail-by-code:
+    description: 根据税号获取供应商
+    http:
+      method: POST
+      path: /supplier-customer-import/get-supplier-info-by-code
+    params:
+      body: []
+      query:
+      - name: code
+        type: string
+  validate-name:
+    description: 校验供应商名称
+    http:
+      method: POST
+      path: /supplier-customer-import/valid-supplier-name
+    params:
+      body:
+      - name: basicInfoId
+        type: int
+        description: 供应商基础数据ID
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: taxIdNumber
+        type: string
+        description: 纳税识别号
+      - name: groupCompanyId
+        type: int
+        description: 集团公司ID
+      - name: actualOrderingCompanyId
+        type: int
+        description: 实际下单公司Id
+      - name: needValidSupplierNameCorrect
+        type: bool
+        description: 是否需要供应商名称正确性校验
+      - name: originType
+        type: int
+        description: 来源类型
+      - name: applicationType
+        type: int
+        description: 类型
+      - name: businessStatus
+        type: int
+        description: 业务申请状态
+        default: 0
+    request_body:
+      actualOrderingCompanyId: '{{ actualOrderingCompanyId }}'
+      applicationType: '{{ applicationType }}'
+      basicInfoId: '{{ basicInfoId }}'
+      businessStatus: '{{ businessStatus | default(0) }}'
+      groupCompanyId: '{{ groupCompanyId }}'
+      needValidSupplierNameCorrect: '{{ needValidSupplierNameCorrect }}'
+      originType: '{{ originType }}'
+      supplierName: '{{ supplierName }}'
+      taxIdNumber: '{{ taxIdNumber }}'
+  audit-brand:
+    description: 推荐供应商审核-品牌
+    http:
+      method: POST
+      path: /supplier-customer-import/supplier-audit-brand
+    params:
+      body:
+      - name: id
+        type: int
+        description: 数据库id
+      - name: status
+        type: int
+        description: 1-通过 2-驳回
+      - name: rejectReason
+        type: string
+        description: 驳回原因
+    request_body:
+      id: '{{ id }}'
+      rejectReason: '{{ rejectReason }}'
+      status: '{{ status }}'
+  update-category:
+    description: 编辑供应商-品类/品牌/加盟
+    http:
+      method: POST
+      path: /supplier-customer-import/edit-supplier-category
+    params:
+      body:
+      - name: isNewSupplier
+        type: bool
+        description: 是否新供应商
+        default: false
+      - name: businessLicense
+        type: string
+        description: 营业执照URL
+      - name: businessLicenseFileName
+        type: string
+        description: 营业执照文件名
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: supplierCode
+        type: string
+        description: 供应商编号
+      - name: taxIdNumber
+        type: string
+        description: 纳税识别号
+      - name: warehouseArea
+        type: string
+        description: 仓库面积
+      - name: storeArea
+        type: string
+        description: 门店面积
+      - name: provinceId
+        type: int
+        description: 办公所在地省ID
+      - name: provinceName
+        type: string
+        description: 办公所在地省
+      - name: cityId
+        type: int
+        description: 办公所在地市ID
+      - name: cityName
+        type: string
+        description: 办公所在地市
+      - name: detailAddress
+        type: string
+        description: 办公所在地详细地址
+      - name: signatoryName
+        type: string
+        description: 协议签署人姓名
+      - name: signatoryJob
+        type: string
+        description: 协议签署人职务
+      - name: signatoryJobStr
+        type: string
+        description: 协议签署人职务显示值
+      - name: signatoryEmail
+        type: string
+        description: 协议签署人邮箱
+      - name: signatoryPhone
+        type: string
+        description: 协议签署人手机号
+      - name: contactName
+        type: string
+        description: 联系人姓名
+      - name: position
+        type: string
+        description: 职务
+      - name: positionStr
+        type: string
+        description: 职务显示值
+      - name: email
+        type: string
+        description: 邮箱
+      - name: phoneNumber
+        type: string
+        description: 联系方式
+      - name: id
+        type: int
+        description: 主键ID
+      - name: applicationType
+        type: int
+        description: 类型，1供应商引入，2新增合作
+      - name: introduceAuditUserNo
+        type: string
+        description: 引入组审核人
+      - name: area
+        type: float
+        description: 自有/租赁仓库或门店面积
+      - name: annualIncome
+        type: float
+        description: 年报营业收入
+      - name: employNumber
+        type: int
+        description: 参保人数
+      - name: brandInfo_id
+        type: int
+        description: 品牌垂直业务申请信息Id
+      - name: brandInfo_introduceAuditUserNo
+        type: string
+        description: 引入组审核人
+      - name: annualIncome
+        type: float
+        description: 年报营业收入
+        required: true
+    request_body:
+      annualIncome: '{{ annualIncome }}'
+      brandInfo_id: '{{ brandInfo_id }}'
+      brandInfo_introduceAuditUserNo: '{{ brandInfo_introduceAuditUserNo }}'
+      categoryInfo_annualIncome: '{{ categoryInfo_annualIncome }}'
+      categoryInfo_applicationType: '{{ categoryInfo_applicationType }}'
+      categoryInfo_area: '{{ categoryInfo_area }}'
+      categoryInfo_employNumber: '{{ categoryInfo_employNumber }}'
+      categoryInfo_id: '{{ categoryInfo_id }}'
+      categoryInfo_introduceAuditUserNo: '{{ categoryInfo_introduceAuditUserNo }}'
+      categoryRegions: '{{ categoryRegions | default(''[]'') }}'
+      contactInfo: '{{ contactInfo | default(''[]'') }}'
+      supplierAuthorization: '{{ supplierAuthorization | default(''[]'') }}'
+      supplierBasicInfo_businessLicense: '{{ supplierBasicInfo_businessLicense }}'
+      supplierBasicInfo_businessLicenseFileName: '{{ supplierBasicInfo_businessLicenseFileName }}'
+      supplierBasicInfo_cityId: '{{ supplierBasicInfo_cityId }}'
+      supplierBasicInfo_cityName: '{{ supplierBasicInfo_cityName }}'
+      supplierBasicInfo_contactName: '{{ supplierBasicInfo_contactName }}'
+      supplierBasicInfo_detailAddress: '{{ supplierBasicInfo_detailAddress }}'
+      supplierBasicInfo_email: '{{ supplierBasicInfo_email }}'
+      supplierBasicInfo_isNewSupplier: '{{ supplierBasicInfo_isNewSupplier | default(False) }}'
+      supplierBasicInfo_phoneNumber: '{{ supplierBasicInfo_phoneNumber }}'
+      supplierBasicInfo_position: '{{ supplierBasicInfo_position }}'
+      supplierBasicInfo_positionStr: '{{ supplierBasicInfo_positionStr }}'
+      supplierBasicInfo_provinceId: '{{ supplierBasicInfo_provinceId }}'
+      supplierBasicInfo_provinceName: '{{ supplierBasicInfo_provinceName }}'
+      supplierBasicInfo_signatoryEmail: '{{ supplierBasicInfo_signatoryEmail }}'
+      supplierBasicInfo_signatoryJob: '{{ supplierBasicInfo_signatoryJob }}'
+      supplierBasicInfo_signatoryJobStr: '{{ supplierBasicInfo_signatoryJobStr }}'
+      supplierBasicInfo_signatoryName: '{{ supplierBasicInfo_signatoryName }}'
+      supplierBasicInfo_signatoryPhone: '{{ supplierBasicInfo_signatoryPhone }}'
+      supplierBasicInfo_storeArea: '{{ supplierBasicInfo_storeArea }}'
+      supplierBasicInfo_supplierCode: '{{ supplierBasicInfo_supplierCode }}'
+      supplierBasicInfo_supplierName: '{{ supplierBasicInfo_supplierName }}'
+      supplierBasicInfo_taxIdNumber: '{{ supplierBasicInfo_taxIdNumber }}'
+      supplierBasicInfo_warehouseArea: '{{ supplierBasicInfo_warehouseArea }}'
+      taxDoc: '{{ taxDoc | default(''[]'') }}'
+  audit-category:
+    description: 推荐供应商审核-品类
+    http:
+      method: POST
+      path: /supplier-customer-import/supplier-audit-category
+    params:
+      body:
+      - name: id
+        type: int
+        description: 数据库id
+      - name: status
+        type: int
+        description: 1-通过 2-驳回
+      - name: rejectReason
+        type: string
+        description: 驳回原因
+    request_body:
+      id: '{{ id }}'
+      rejectReason: '{{ rejectReason }}'
+      status: '{{ status }}'
+  validate-name-composite:
+    description: 供应商名称校验综合接口
+    http:
+      method: POST
+      path: /supplier-customer-import/supplier-name-valid
+    params:
+      body:
+      - name: basicInfoId
+        type: int
+      - name: supplierName
+        type: string
+      - name: taxIdNumber
+        type: string
+      - name: groupCompanyId
+        type: int
+      - name: actualOrderingCompanyId
+        type: int
+      - name: needValidSupplierNameCorrect
+        type: bool
+    request_body:
+      actualOrderingCompanyId: '{{ actualOrderingCompanyId }}'
+      basicInfoId: '{{ basicInfoId }}'
+      groupCompanyId: '{{ groupCompanyId }}'
+      needValidSupplierNameCorrect: '{{ needValidSupplierNameCorrect }}'
+      supplierName: '{{ supplierName }}'
+      taxIdNumber: '{{ taxIdNumber }}'
+  detail-third:
+    description: 获取供应商第三方信息
+    http:
+      method: POST
+      path: /supplier-customer-import/get-supplier-third-info
+    params:
+      body:
+      - name: supplierCode
+        type: string
+        description: 供应商code
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: originType
+        type: int
+        description: 来源类型
+    request_body:
+      originType: '{{ originType }}'
+      supplierCode: '{{ supplierCode }}'
+      supplierName: '{{ supplierName }}'
+  audit-partner:
+    description: 推荐供应商审核-加盟
+    http:
+      method: POST
+      path: /supplier-customer-import/supplier-audit-partner
+    params:
+      body:
+      - name: id
+        type: int
+        description: 数据库id
+      - name: status
+        type: int
+        description: 1-通过 2-驳回
+      - name: rejectReason
+        type: string
+        description: 驳回原因
+    request_body:
+      id: '{{ id }}'
+      rejectReason: '{{ rejectReason }}'
+      status: '{{ status }}'
+  validate-exists:
+    description: 校验供应商是否已存在
+    http:
+      method: POST
+      path: /supplier-customer-import/check-supplier
+    params:
+      body:
+      - name: supplierCode
+        type: string
+        description: 供应商code
+      - name: supplierName
+        type: string
+        description: 供应商名称
+      - name: originType
+        type: int
+        description: 来源类型
+    request_body:
+      originType: '{{ originType }}'
+      supplierCode: '{{ supplierCode }}'
+      supplierName: '{{ supplierName }}'
+  reset-direction:
+    description: 方向审核撤回提交
+    http:
+      method: POST
+      path: /supplier-customer-import/reset-direction
+    params:
+      body:
+      - name: id
+        type: int
+        description: 定向列表返回id字段
+      - name: gId
+        type: int
+        description: 定向列表返回gid字段
+      - name: yId
+        type: int
+        description: 定向列表返回yid字段
+    request_body:
+      gId: '{{ gId }}'
+      id: '{{ id }}'
+      yId: '{{ yId }}'

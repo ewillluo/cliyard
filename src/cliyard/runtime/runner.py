@@ -100,9 +100,64 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
     from cliyard.runtime.auth_commands import add_auth_commands
     add_auth_commands(cli, service, base_url=server.get("base_url", "http://localhost:8080"))
 
+    # Group resources by their "group" field for nesting
+    # Supports dot-separated paths: "asset.logcluster" → asset → logcluster
+    groups_data: dict[str, dict[str, Any]] = {}
+    ungrouped: list[click.Group] = []
+
+    # Load group definitions from _groups.yaml (optional)
+    _groups_def: dict[str, Any] = {}
+    _groups_file = spec_path / "_groups.yaml"
+    if _groups_file.is_file():
+        import yaml as _yaml
+        try:
+            _groups_def = _yaml.safe_load(_groups_file.read_text()) or {}
+        except Exception:
+            pass
+
+    def _ensure_group(path: str) -> str:
+        """Ensure a group path exists and return the leaf group name."""
+        parts = path.split(".")
+        for i, part in enumerate(parts):
+            prefix = ".".join(parts[:i+1])
+            if prefix not in groups_data:
+                _gdef = _groups_def.get(part, {})
+                _gdesc = _gdef.get("description") or f"{part} 管理"
+                groups_data[prefix] = {"description": _gdesc, "children": [], "parent": ".".join(parts[:i]) if i > 0 else ""}
+        return path
+
     for resource in service.get("resources", []):
-        group = build_resource_group(resource["name"], resource, ctx)
-        cli.add_command(group)
+        group_name = resource.get("group", "")
+        grp = build_resource_group(resource["name"], resource, ctx)
+        if group_name:
+            leaf = _ensure_group(group_name)
+            groups_data[leaf]["children"].append(grp)
+        else:
+            ungrouped.append(grp)
+
+    # Build parent groups with descriptions that include child names
+    built: dict[str, click.Group] = {}
+    # Sort by depth (shallowest first) so parents are built before children
+    for gpath in sorted(groups_data.keys(), key=lambda p: p.count(".")):
+        gdata = groups_data[gpath]
+        children_names = ", ".join(sorted(c.name for c in gdata["children"]))
+        gdesc = f"{gdata['description']}（{children_names}）"
+        parent_grp = click.Group(name=gpath.split(".")[-1], short_help=gdesc)
+        for child in gdata["children"]:
+            parent_grp.add_command(child)
+        built[gpath] = parent_grp
+
+    # Wire up parent-child relationships
+    for gpath, parent_grp in built.items():
+        parent_path = groups_data[gpath].get("parent", "")
+        if parent_path and parent_path in built:
+            built[parent_path].add_command(parent_grp)
+        else:
+            cli.add_command(parent_grp)
+
+    # Add ungrouped resources directly to top-level
+    for grp in ungrouped:
+        cli.add_command(grp)
 
     # Add top-level command plugins (e.g. search)
     from cliyard.plugin import PluginRegistry

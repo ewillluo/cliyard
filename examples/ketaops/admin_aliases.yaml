@@ -1,0 +1,11 @@
+group: admin
+name: aliases
+description: KetaDB 索引别名
+path: admin/internal/_cat/aliases
+methods:
+  list:
+    description: KetaDB 索引别名 - list
+    http:
+      method: GET
+      query:
+        format: json

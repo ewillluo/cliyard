@@ -81,6 +81,13 @@ def bind_and_validate(kwargs: dict[str, Any], method_spec: dict[str, Any]) -> Va
             name = field_spec["name"]
             value = kwargs.get(name)
 
+            # Click normalizes argument names to lowercase; try case-insensitive fallback
+            if value is None:
+                for k, v in kwargs.items():
+                    if k.lower() == name.lower():
+                        value = v
+                        break
+
             # Required check (multiple=True passes () not None)
             is_missing = value is None or (field_spec.get("multiple") and value == ())
             if is_missing and field_spec.get("required"):

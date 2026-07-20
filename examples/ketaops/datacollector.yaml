@@ -1,3 +1,5 @@
+group: dc
+name: config
 description: 采集任务配置管理
 path: dc/collector/config
 methods:
@@ -23,6 +25,7 @@ methods:
           alias: 所属应用
         - name: updateTime
           alias: 更新时间
+          format: datetime
   get:
     description: 采集任务配置详情
     http:
