@@ -2,10 +2,23 @@
 name = "cliyard"
 version = "0.3.2"
 description = "YAML-driven CLI framework — turn any REST API into CLI commands"
-authors = []
+authors = [
+    {name = "keta", email = "dev@ketaops.cc"},
+]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["cli", "yaml", "rest-api", "codegen", "click"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
     "click>=8.1.0",
     "pyyaml~=6.0",
@@ -15,13 +28,13 @@ dependencies = [
     "jsonpath-ng~=1.7.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/guolong123/cliyard"
+Repository = "https://github.com/guolong123/cliyard.git"
+
 [project.scripts]
 cliyard = "cliyard.cli.__main__:main"
 
 [build-system]
 requires = ["setuptools>=65.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[tool.cliyard]
-# Default spec directory (can be overridden via --spec-dir)
-spec_dir = "cliyard-specs"

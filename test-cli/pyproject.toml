@@ -1,0 +1,18 @@
+[project]
+name = "test-cli"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["cliyard>=0.1.0"]
+
+[project.scripts]
+test-cli = "test_cli.main:main"
+
+[build-system]
+requires = ["setuptools>=65.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"test_cli" = ["specs/*.yaml", "specs/plugins/*.py", "specs/plugins/spl_parser/*.py"]

@@ -1,0 +1,93 @@
+description: 仓库管理
+path: repos
+methods:
+  list:
+    http:
+      method: GET
+    params:
+      query:
+        - name: with_doc_size
+          type: bool
+          default: true
+          description: 是否返回文档大小
+        - name: page
+          type: int
+          default: 1
+          description: 页码
+        - name: per_page
+          type: int
+          default: 20
+          description: 每页条数
+    output:
+      items_path: $.repos
+      total_path: $.total
+      fields:
+        - name: name
+          alias: 仓库名称
+        - name: type
+          alias: 仓库类型
+        - name: description
+          alias: 描述
+  create:
+    http:
+      method: POST
+      path: repos/{{ name }}
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 仓库名称
+        - name: repo_type
+          type: enum
+          choices: [EVENTS, METRICS, LOGS]
+          default: EVENTS
+          description: 仓库类型
+        - name: description
+          type: string
+          description: 仓库描述
+        - name: capacity_size_value
+          type: int
+          default: 50
+          description: 容量大小
+        - name: retention
+          type: int
+          default: -1
+          description: 保留天数 (-1 永久)
+  get:
+    http:
+      method: GET
+      path: repos/{{ name }}
+    params:
+      path:
+        - name: name
+          type: string
+          required: true
+          description: 仓库名称
+  update:
+    http:
+      method: PUT
+      path: repos/{{ name }}
+    params:
+      path:
+        - name: name
+          type: string
+          required: true
+          description: 仓库名称
+      body:
+        - name: description
+          type: string
+          description: 仓库描述
+        - name: retention
+          type: int
+          description: 保留天数
+  delete:
+    http:
+      method: POST
+      path: repos:batchDelete
+    params:
+      body:
+        - name: names
+          type: string
+          required: true
+          description: 仓库名称列表 (逗号分隔)
