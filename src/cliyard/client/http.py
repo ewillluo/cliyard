@@ -12,8 +12,9 @@ class HttpClient:
     across multiple requests in an auth chain.
     """
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, timeout: int = 30) -> None:
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
         self.default_headers: dict[str, str] = {}
         self._session = requests.Session()
 
@@ -24,8 +25,13 @@ class HttpClient:
         data: dict | list | None = None,
         query_params: dict | None = None,
         headers: dict | None = None,
+        timeout: int | None = None,
     ) -> requests.Response:
-        """Send an HTTP request, prepending base_url for relative paths."""
+        """Send an HTTP request, prepending base_url for relative paths.
+        
+        Args:
+            timeout: Per-request timeout override (uses instance timeout if None).
+        """
         merged_headers: dict[str, str] = {**self.default_headers, **(headers or {})}
         send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH")
         if send_json and "Content-Type" not in merged_headers:
@@ -38,7 +44,7 @@ class HttpClient:
             json=data,
             params=query_params,
             headers=merged_headers or None,
-            timeout=30,
+            timeout=timeout or self.timeout,
         )
         if 400 <= resp.status_code < 600:
             raise ApiError(status=resp.status_code, url=url, body=resp.text)

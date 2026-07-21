@@ -57,15 +57,30 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
     # Load service config
     service = _load_yaml(service_path)
 
-    # Validate required service fields
-    if not service.get("name"):
-        raise ValueError(f"{service_path}: 'name' is required and must not be empty")
-    if not isinstance(service.get("server"), dict):
-        raise ValueError(f"{service_path}: 'server' is required and must be a mapping")
-    if not service["server"].get("base_url"):
-        raise ValueError(
-            f"{service_path}: 'server.base_url' is required and must not be empty"
-        )
+    # Normalize server config: support both list (new) and dict (old) format
+    server_raw = service.get("server", {})
+    if isinstance(server_raw, list):
+        # New format: [{name: "serve1", base_url: "...", prefix: "..."}, ...]
+        servers: dict[str, Any] = {}
+        for entry in server_raw:
+            sname = entry.get("name", "")
+            if sname:
+                servers[sname] = entry
+        if not servers:
+            raise ValueError(f"{service_path}: 'server' list must contain at least one entry with a 'name'")
+        service["servers"] = servers
+        # First server is default
+        service["server"] = servers[list(servers.keys())[0]]
+    elif isinstance(server_raw, dict):
+        # Old format: {base_url: "...", prefix: "..."}
+        # Check if it's already a named dict
+        if "base_url" in server_raw:
+            service["servers"] = {"default": server_raw}
+        else:
+            # Already a named dict like {serve1: {base_url: ...}}
+            service["servers"] = server_raw
+    else:
+        raise ValueError(f"{service_path}: 'server' is required and must be a mapping or list")
 
     # Scan for resource YAML files
     resources: list[dict[str, Any]] = []

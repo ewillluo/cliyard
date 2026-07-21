@@ -86,7 +86,9 @@ def _extract(root: Any, path: str) -> Any:
 
     matches = expr.find(root)
     if not matches:
-        raise ResponseParseError(f"JSONPath '{path}' matched nothing in response")
+        import json as _json
+        _body = _json.dumps(root, indent=2, ensure_ascii=False)[:2000]
+        raise ResponseParseError(f"JSONPath '{path}' 未匹配到数据\n原始响应:\n{_body}")
 
     # Return a single value if only one match; otherwise return a list.
     if len(matches) == 1:

@@ -227,3 +227,434 @@ The `search_spl()` function (search.py:60) is the most complete entry point — 
 - Error extraction
 - Result retrieval
 All in ~16 lines. Replicating this core loop is the main task.
+
+---
+
+## Multi-Server Support: Current State Analysis & Change Plan
+
+### 0. Goal
+
+Transform the current single-server model into a multi-server model where:
+
+```yaml
+# _auth.yaml — server becomes a named list
+server:
+  - name: serve1
+    base_url: http://localhost:8080
+    prefix: /api/v1
+  - name: serve2
+    base_url: https://other.com
+    prefix: /api/v2
+```
+
+Resource YAMLs and auth steps can specify `server: serve1` to select which server.
+
+### 1. Current Server Resolution Flow
+
+#### 1a. `loader.py` → `load_service()` (L28–101)
+
+```python
+service = _load_yaml(service_path)  # parse _auth.yaml
+
+# Current validation:
+# L63: isinstance(server, dict) — REJECTS list format
+# L65: server["server"]["base_url"] must exist
+```
+
+**Current behavior:** Validates `server` is a single `dict` with `base_url`. Returns `service["server"]` as `{base_url: "…", prefix: "…"}`.
+
+**Already broken:** The ketaops example already uses the list format (L25–28):
+```yaml
+server:
+  - name: serve1
+    base_url: http://localhost:8080
+    prefix: /api/v1
+```
+This will raise `ValueError` at L63 because `isinstance(server, dict)` is `False` for a list.
+
+#### 1b. `runner.py` → `create_cli()` (L23–170)
+
+Flow:
+```
+L50: server = service.get("server", {})                  # single dict
+L54–57: saved_profile = get_current_profile()
+        saved_endpoint = saved_profile.get("endpoint")
+        base_url = saved_endpoint or server.get("base_url", "http://localhost:8080")  # ← single string
+L86–91: ctx = ServiceContext(
+            base_url=base_url,                           # single base_url
+            prefix=server.get("prefix", ""),              # single prefix
+            auth_spec=auth_spec,
+            pre_filled_auth=pre_filled,
+        )
+L101: add_auth_commands(cli, service, base_url=server.get("base_url", ...))  # ← single base_url
+L131: grp = build_resource_group(resource["name"], resource, ctx)  # ctx has single server
+```
+
+**Key observation:** The profile's saved `endpoint` can override the YAML `base_url`, but there's no notion of which server the endpoint belongs to.
+
+#### 1c. `builder.py` → `ServiceContext` (L29–42)
+
+```python
+@dataclass
+class ServiceContext:
+    base_url: str        # ← single string
+    prefix: str = ""     # ← single string
+    auth_spec: dict | None = None
+    pre_filled_auth: dict | None = None
+```
+
+This is passed through **all** builder/callback functions. Every callback that needs to make HTTP requests uses `service_ctx.base_url`:
+
+| Location | Usage |
+|---|---|
+| L276 | `_HC(service_ctx.base_url)` — field resolver |
+| L303 | `HttpClient(service_ctx.base_url)` — auth chain in callback |
+| L319 | `assemble_request(..., base_url=service_ctx.base_url, prefix=service_ctx.prefix)` |
+| L526 | `HttpClient(ctx.base_url)` — plugin callback |
+
+#### 1d. `assembler.py` → `assemble_request()` (L113–281)
+
+Receives `base_url` and `prefix` as separate params. No awareness of multi-server. URL construction:
+
+```python
+base, base_path = _strip_url_path(base_url)  # split scheme+host from path
+full_url = _join_path(base, base_path, prefix, rendered_path)
+```
+
+**No change needed here** — as long as we pass the correct `(base_url, prefix)` pair, the assembler works fine.
+
+#### 1e. `auth.py` → `run_auth_chain()` (L146–279)
+
+Receives `http_client` (already initialized with a `base_url`). Auth steps that make HTTP requests (login steps) use `http_client.request(url=endpoint)` which prepends `http_client.base_url` for relative paths.
+
+**No awareness of server identity.** The `http_client` is created once with a base URL, and all auth steps use the same client.
+
+#### 1f. `credentials.py` (L1–154)
+
+Profile-based storage at `~/.cliyard/credentials.yaml`:
+
+```yaml
+profiles:
+  prod:
+    endpoint: https://prod.example.com
+    token: eyJ...
+  dev:
+    endpoint: https://dev.example.com
+    token: eyJ...
+current: dev
+```
+
+Profiles are identified by name and store `endpoint` + `token` (+ optional `expires_at`). **No association with server names from YAML.**
+
+#### 1g. `auth_commands.py` → `add_auth_commands()` (L25–143)
+
+```python
+def add_auth_commands(cli, service, base_url: str = "") -> None:
+```
+
+Receives a single `base_url` string. The `auth add` command:
+```
+L46: _base_url = endpoint or base_url  # endpoint from -e flag, or YAML base_url
+L47: client = HttpClient(_base_url)
+L49: save_profile(profile_name, {"token": token, "endpoint": _base_url}, ...)
+L73: fields = {"endpoint": base_url}  # ← BUG: uses base_url not _base_url when saving after login chain
+```
+
+**Bug on L73:** Uses `base_url` (YAML default) instead of `_base_url` (user-specified via `-e`) when saving credentials after a login chain. This means `auth add -e https://custom.com` will still save `endpoint: http://localhost:8080` if the password-based login path is taken.
+
+#### 1h. `cli/auth_cmd.py` → `auth_login()` (L29–113)
+
+```python
+L58: server = service.get("server", {})          # single dict
+L59: base_url = server.get("base_url", "...")     # single string
+L60: client = HttpClient(base_url)                # single server
+```
+
+Same pattern — single server assumption.
+
+#### 1i. `schema/validator.py` → `validate_service()` (L36–86)
+
+```python
+L58: server = spec.get("server")
+L59: if isinstance(server, dict):
+L60:     _require_non_empty(server, filename, "server", "base_url", result)
+```
+
+Only validates `dict` format. No handling for `list` format.
+
+#### 1j. `schema/types.py` → `ServerConfig` (L30–42)
+
+```python
+class ServerConfig(TypedDict, total=False):
+    base_url: str
+    prefix: str
+    timeout: int
+```
+
+No `name` field. `ServiceSpec.server` is typed as `ServerConfig` (single), not `ServerConfig | list[ServerConfig]`.
+
+#### 1k. `cli/gen.py` → `gen()` (L249–361)
+
+Generates scaffold `_auth.yaml` with single-server format:
+```yaml
+server:
+  base_url: http://localhost:8080
+```
+
+### 2. All Files Touching `server` / `base_url`
+
+| File | Line(s) | Current Pattern | Change Needed? |
+|---|---|---|---|
+| `engine/loader.py` | L63–68 | `isinstance(server, dict)` validation | **YES** — accept both dict and list |
+| `runtime/runner.py` | L50–57 | Single `server.get("base_url")` | **YES** — resolve server by name |
+| `runtime/runner.py` | L86–91 | `ServiceContext(base_url=...)` | **YES** — pass all servers |
+| `runtime/runner.py` | L101 | `add_auth_commands(cli, ..., base_url=...)` | **YES** — pass all servers |
+| `engine/builder.py` | L29–42 | `ServiceContext` with single `base_url` | **YES** — hold servers map |
+| `engine/builder.py` | L204–389 | `_make_callback` uses `service_ctx.base_url` | **YES** — resolve per-resource server |
+| `engine/builder.py` | L396–489 | `build_list_command`, `build_operation_command` | **YES** — pass correct server to callback |
+| `engine/builder.py` | L492–542 | `_make_plugin_callback` uses `ctx.base_url` | **YES** — resolve per-resource server |
+| `engine/builder.py` | L545–582 | `build_resource_group` | **YES** — read `server` from resource spec |
+| `engine/assembler.py` | L113–281 | `assemble_request(base_url, prefix)` | **NO** — already parameterized |
+| `client/auth.py` | L146–279 | `run_auth_chain(auth_spec, http_client)` | **YES** — auth steps may pick server |
+| `client/http.py` | L8–45 | `HttpClient(base_url)` | **NO** — already parameterized |
+| `client/credentials.py` | L1–154 | Profiles with `endpoint` | **MAYBE** — add server_name association |
+| `runtime/auth_commands.py` | L25–143 | `add_auth_commands(cli, service, base_url)` | **YES** — multi-server auth |
+| `runtime/auth_commands.py` | L46–52, L73 | `base_url` vs `_base_url` bug | **YES** — fix bug + multi-server |
+| `cli/auth_cmd.py` | L58–60 | Single `server.get("base_url")` | **YES** |
+| `schema/validator.py` | L58–60 | Only validates dict format | **YES** — validate list format |
+| `schema/types.py` | L30–42 | `ServerConfig` has no `name` | **YES** — add `name`, update `ServiceSpec` |
+| `cli/gen.py` | L300–306 | Scaffold uses single-server format | **NO** — backward compat via dict→list conversion |
+
+### 3. Change Plan
+
+#### Phase 1: Schema & Validation (low risk, no behavior change)
+
+**File: `schema/types.py`**
+- Add `name: str` to `ServerConfig`
+- Add `default: bool` to `ServerConfig` (for marking default server)
+- Change `ServiceSpec.server` to `ServerConfig | list[ServerConfig]`
+
+**File: `schema/validator.py`**
+- `validate_service()`: handle both `dict` (legacy) and `list` (new):
+  ```python
+  server = spec.get("server")
+  if isinstance(server, dict):
+      _require_non_empty(server, filename, "server", "base_url", result)
+  elif isinstance(server, list):
+      for i, srv in enumerate(server):
+          _require_non_empty(srv, filename, f"server[{i}]", "name", result)
+          _require_non_empty(srv, filename, f"server[{i}]", "base_url", result)
+  else:
+      result.add(filename, "server", "must be a dict or list")
+  ```
+- Update `_VALID_AUTH_TYPES` if `plugin:*` types are valid (currently L93 only has `{"env", "login", "inject"}` but ketaops uses `plugin:keta_login`)
+
+#### Phase 2: Loader Normalization (backward-compatible)
+
+**File: `engine/loader.py` → `load_service()`**
+
+```python
+# New normalized format: always return servers as list of dicts
+server_raw = service.get("server")
+if isinstance(server_raw, dict):
+    # Legacy single-server → normalize to list
+    servers = [{"name": "default", **server_raw}]
+elif isinstance(server_raw, list):
+    servers = server_raw
+    # Validate each has name + base_url
+    for srv in servers:
+        if not srv.get("name"):
+            raise ValueError("Each server entry must have a 'name' field")
+        if not srv.get("base_url"):
+            raise ValueError(f"Server '{srv.get('name', '?')}' must have 'base_url'")
+else:
+    raise ValueError("'server' must be a dict or list of dicts")
+
+service["servers"] = servers  # normalized
+# Keep service["server"] as first/default server for backward compat
+service["server"] = servers[0]
+```
+
+#### Phase 3: ServiceContext Evolution
+
+**File: `engine/builder.py` → `ServiceContext`**
+
+```python
+@dataclass
+class ServerInfo:
+    name: str
+    base_url: str
+    prefix: str = ""
+
+@dataclass
+class ServiceContext:
+    servers: dict[str, ServerInfo]  # name → server info
+    auth_spec: dict | None = None
+    pre_filled_auth: dict | None = None
+
+    @property
+    def base_url(self) -> str:
+        """Backward-compat: return default server's base_url."""
+        return self.get_server().base_url
+
+    @property
+    def prefix(self) -> str:
+        """Backward-compat: return default server's prefix."""
+        return self.get_server().prefix
+
+    def get_server(self, name: str | None = None) -> ServerInfo:
+        """Resolve a server by name. Falls back to first/default server."""
+        if name and name in self.servers:
+            return self.servers[name]
+        # Return first server (or the one marked default)
+        for s in self.servers.values():
+            return s
+        raise ValueError("No servers configured")
+```
+
+This preserves backward compatibility — existing code using `ctx.base_url` and `ctx.prefix` continues to work via properties.
+
+#### Phase 4: Runner Adaptation
+
+**File: `runtime/runner.py` → `create_cli()`**
+
+```python
+# Normalize servers (loader already normalized to list)
+servers_raw: list[dict] = service.get("servers", [])
+server_map: dict[str, ServerInfo] = {}
+for srv in servers_raw:
+    server_map[srv["name"]] = ServerInfo(
+        name=srv["name"],
+        base_url=srv.get("base_url", "http://localhost:8080"),
+        prefix=srv.get("prefix", ""),
+    )
+
+# Override default server's base_url from saved profile endpoint
+saved_profile = get_current_profile()
+if saved_profile and saved_profile.get("endpoint"):
+    default_server_name = saved_profile.get("server_name", next(iter(server_map)))
+    if default_server_name in server_map:
+        server_map[default_server_name].base_url = saved_profile["endpoint"]
+
+# Pre-filled auth (unchanged)
+
+ctx = ServiceContext(
+    servers=server_map,
+    auth_spec=auth_spec,
+    pre_filled_auth=pre_filled,
+)
+
+# Pass all servers to auth commands
+add_auth_commands(cli, service, servers=server_map)
+```
+
+#### Phase 5: Callback Server Resolution
+
+**File: `engine/builder.py` → callback factories**
+
+In `_make_callback()`, `_make_plugin_callback()`, `build_list_command()`, `build_operation_command()`, and `build_resource_group()`:
+
+```python
+# build_resource_group() reads resource-level server:
+resource_server = resource_spec.get("server", None)  # "serve1" or None
+
+# Inside _make_callback():
+server = service_ctx.get_server(resource_server)  # or resource_server if specified
+client = HttpClient(server.base_url)
+
+# assemble_request():
+req = assemble_request(
+    method_spec, merged_params,
+    base_url=server.base_url,
+    prefix=server.prefix,
+)
+```
+
+#### Phase 6: Auth Chain Multi-Server
+
+**File: `runtime/auth_commands.py` → `add_auth_commands()`**
+
+```python
+def add_auth_commands(cli: click.Group, service: dict, servers: dict[str, ServerInfo]) -> None:
+```
+
+- `auth add` gets new `--server` option to pick which server definition
+- Fix L73 bug: use `_base_url` instead of `base_url`
+- Save `server_name` in profile fields
+
+```python
+@auth.command("add")
+@click.option("-s", "--server", "server_name", help="Server name from _auth.yaml")
+...
+def auth_add(name, username, password, token, endpoint, set_default, set_vars, server_name):
+    # Resolve server
+    if server_name and server_name in servers:
+        srv = servers[server_name]
+    else:
+        srv = next(iter(servers.values()))  # default
+    
+    _base_url = endpoint or srv.base_url
+    client = HttpClient(_base_url)
+    
+    # Save with server_name
+    save_profile(profile_name, {
+        "token": token, 
+        "endpoint": _base_url,
+        "server_name": server_name or srv.name,
+    }, ...)
+```
+
+#### Phase 7: Auth Step Server Selection
+
+**File: `client/auth.py` → auth steps**
+
+Auth steps in YAML can now have `server: serve1`. When processing auth steps:
+- Each step that needs an HTTP client picks the correct server
+- Currently the entire chain uses one `http_client` — need to handle per-step server switching
+
+For simplicity, the first pass can keep using the default server for all auth steps. Multi-server auth (different servers for different auth steps) is a future enhancement.
+
+**File: `cli/auth_cmd.py` → `auth_login()`**
+
+Same treatment as `add_auth_commands()` — resolve server from the new `servers` list.
+
+#### Phase 8: Resource YAML `server` Field
+
+Resource YAMLs can already have any top-level key (YAML is flexible). Add `server: serve1` as an optional field:
+
+```yaml
+# repos.yaml
+description: 仓库管理
+server: serve1  # ← NEW: pick which server this resource uses
+path: repos
+methods: ...
+```
+
+The `build_resource_group()` in builder.py reads `resource_spec.get("server")` and passes it to the callbacks.
+
+#### Phase 9: Credentials Enhancement
+
+**File: `client/credentials.py`**
+
+Profiles already work fine. Add `server_name` as an optional field to associate profiles with YAML-defined servers. No structural change needed — profiles remain flat.
+
+### 4. Backward Compatibility Strategy
+
+1. **Single server dict → auto-normalize**: `{"base_url": "...", "prefix": "..."}` becomes `[{"name": "default", "base_url": "...", "prefix": "..."}]`
+2. **ServiceContext properties**: `.base_url` and `.prefix` remain as backward-compat properties returning the default server's values
+3. **All existing tests pass without changes** — the normalized path produces identical behavior for single-server specs
+4. **Existing YAML specs** (xiyu, ketacli-repos examples) continue to work unchanged
+
+### 5. Implementation Order
+
+1. `types.py` — update `ServerConfig`, `ServiceSpec`
+2. `validator.py` — handle both dict and list
+3. `loader.py` — normalize to list, produce `servers` key
+4. `builder.py` — `ServiceContext` with `servers` dict, backward-compat properties
+5. `runner.py` — build `server_map`, pass to `ServiceContext`
+6. `builder.py` (callbacks) — resolve `server` from resource spec
+7. `auth_commands.py` — multi-server `auth add`, fix L73 bug
+8. `cli/auth_cmd.py` — multi-server `auth login`
+9. Tests — add multi-server test cases, single-server backward compat tests
+10. `gen.py` — update scaffold template (optional, backward compat handles it)
+

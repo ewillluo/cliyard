@@ -39,6 +39,8 @@ class ServiceContext:
     prefix: str = ""
     auth_spec: dict | None = None
     pre_filled_auth: dict | None = None
+    servers: dict | None = None
+    timeout: int = 30  # HTTP request timeout in seconds  # All named servers: {name: {base_url, prefix, ...}}
 
 
 # ---------------------------------------------------------------------------
@@ -241,22 +243,25 @@ def _make_callback(
             validated = bind_and_validate(kwargs, method_spec)
 
             # Read file-type params: replace file paths with contents
-            for _location in ("path", "query", "header", "body"):
-                for _param in method_spec.get("params", {}).get(_location, []):
-                    if _param.get("type") == "file" and _param["name"] in kwargs:
-                        _file_path = kwargs[_param["name"]]
-                        if isinstance(_file_path, (tuple, list)):
-                            _file_path = _file_path[0]
-                        if _file_path:
-                            from cliyard.engine.errors import CliyError as _CliyErr
+            # Skip for multipart uploads (files stay as paths for binary handling)
+            _is_multipart = method_spec.get("body_type") == "multipart"
+            if not _is_multipart:
+                for _location in ("path", "query", "header", "body"):
+                    for _param in method_spec.get("params", {}).get(_location, []):
+                        if _param.get("type") == "file" and _param["name"] in kwargs:
+                            _file_path = kwargs[_param["name"]]
+                            if isinstance(_file_path, (tuple, list)):
+                                _file_path = _file_path[0]
+                            if _file_path:
+                                from cliyard.engine.errors import CliyError as _CliyErr
 
-                            try:
-                                with open(_file_path) as _f:
-                                    kwargs[_param["name"]] = _f.read()
-                            except Exception as _e:
-                                raise _CliyErr(f"Failed to read config file {_file_path}: {_e}")
-                        # Re-bind after file read (re-validate)
-                        validated = bind_and_validate(kwargs, method_spec)
+                                try:
+                                    with open(_file_path) as _f:
+                                        kwargs[_param["name"]] = _f.read()
+                                except Exception as _e:
+                                    raise _CliyErr(f"Failed to read config file {_file_path}: {_e}")
+                            # Re-bind after file read (re-validate)
+                            validated = bind_and_validate(kwargs, method_spec)
 
             # Stage 1b: resolve field-level plugins (e.g. dynamic defaults)
             from cliyard.plugin import PluginRegistry as _Reg
@@ -269,7 +274,7 @@ def _make_callback(
                     if _resolver_name.startswith("plugin:"):
                         _fn_name = _resolver_name[7:]
                         _fn = _Reg.get_field_resolver(_fn_name)
-                        if _fn and (not kwargs.get(_param["name"])):
+                        if _fn:
                             from cliyard.client.http import HttpClient as _HC
                             from cliyard.client.auth import run_auth_chain as _auth
 
@@ -300,7 +305,7 @@ def _make_callback(
             if service_ctx.auth_spec:
                 from cliyard.client.http import HttpClient
 
-                client = HttpClient(service_ctx.base_url)
+                client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
                 run_auth_chain(
                     service_ctx.auth_spec,
                     http_client=client,
@@ -329,6 +334,7 @@ def _make_callback(
                 req = run_pre_request_hooks(pre_hooks, req)
 
             # Stage 4: execute HTTP request
+            _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
             response = http_request(
                 method=req.method,
                 url=req.url,
@@ -336,6 +342,7 @@ def _make_callback(
                 query_params=req.query_params,
                 headers=req.headers,
                 files=req.files,
+                timeout=_timeout,
             )
 
             # Stage 5: parse & format response
@@ -380,7 +387,8 @@ def _make_callback(
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
         except Exception as e:
-            console.print(f"[red]Unexpected error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
+            _msg = str(e).replace('[', '[[]').replace(']', '[]]')
+            console.print(f"[red]错误:[/red] {_msg}")
 
     http_method = method_spec.get("http", {}).get("method", "?")
     callback.__doc__ = f"Execute {http_method} operation."
@@ -412,13 +420,17 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
 
     click_params: list[click.Parameter] = []
 
+    # Body / Query / Header params → options (with argument support)
+    for _loc in ("body", "query", "header"):
+        for param in params_spec.get(_loc, []):
+            if param.get("argument"):
+                click_params.append(_param_to_argument(param))
+            else:
+                click_params.append(_param_to_option(param))
+
     # Path params → positional arguments
     for param in params_spec.get("path", []):
         click_params.append(_param_to_argument(param))
-
-    # Query params → options
-    for param in params_spec.get("query", []):
-        click_params.append(_param_to_option(param))
 
     # Built-in --format option for list command
     click_params.append(
@@ -523,7 +535,7 @@ def _make_plugin_callback(
             merged.update(getattr(validated, "body"))
             merged.update(getattr(validated, "argument"))
 
-            client = HttpClient(ctx.base_url)
+            client = HttpClient(ctx.base_url, timeout=ctx.timeout)
             if ctx.auth_spec:
                 run_auth_chain(ctx.auth_spec, http_client=client,
                                pre_filled=ctx.pre_filled_auth)
@@ -537,7 +549,8 @@ def _make_plugin_callback(
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
         except Exception as e:
-            console.print(f"[red]Unexpected error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
+            _msg = str(e).replace('[', '[[]').replace(']', '[]]')
+            console.print(f"[red]错误:[/red] {_msg}")
 
     return callback
 

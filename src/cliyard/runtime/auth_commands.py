@@ -29,28 +29,70 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
     def auth():
         "Manage authentication credentials."
 
-    @auth.command("add")
-    @click.option("-n", "--name", default=None, help="Environment name (default: prod)")
-    @click.option("-u", "--username", help="Login username")
-    @click.option("-p", "--password", help="Login password")
-    @click.option("-t", "--token", help="API token (skip login, save directly)")
-    @click.option("-e", "--endpoint", help="Server endpoint URL")
-    @click.option("--default", "set_default", is_flag=True, help="Set as default environment")
-    @click.option("--set", "set_vars", type=str, multiple=True, help="Set env vars, e.g. --set API_KEY=abc")
-    def auth_add(name, username, password, token, endpoint, set_default, set_vars):
-        profile_name = name or "prod"
+    # Build dynamic server options from service.servers
+    servers: dict[str, Any] = service.get("servers", {})
+    _server_options: dict[str, click.Option] = {}
+    for sname in servers:
+        opt = click.Option(
+            [f"--server-{sname}"],
+            default=None,
+            help=f"Endpoint URL for {sname}",
+            metavar="URL",
+        )
+        _server_options[sname] = opt
+
+    # Dynamically create auth_add command with server options
+    _auth_params = [
+        click.Option(["-n", "--name"], default=None, help="Environment name (default: prod)"),
+        click.Option(["-u", "--username"], help="Login username"),
+        click.Option(["-p", "--password"], help="Login password"),
+        click.Option(["-t", "--token"], help="API token (skip login, save directly)"),
+        click.Option(["-e", "--endpoint"], help="Default endpoint URL (fallback)"),
+        click.Option(["--default"], "set_default", is_flag=True, help="Set as default environment"),
+        click.Option(["--set"], "set_extra", type=str, multiple=True, help="Set env vars, e.g. --set API_KEY=abc"),
+    ] + list(_server_options.values())
+
+    def auth_add_callback(**kwargs: Any) -> None:
+        profile_name = kwargs.pop("name") or "prod"
+        username = kwargs.pop("username", None)
+        password = kwargs.pop("password", None)
+        token = kwargs.pop("token", None)
+        endpoint = kwargs.pop("endpoint", None)
+        set_default = kwargs.pop("set_default", False)
+        set_vars = kwargs.pop("set_extra", ())
+
+        # Collect per-server endpoints from dynamic options
+        server_endpoints: dict[str, str] = {}
+        for sname in servers:
+            key = f"server_{sname}"
+            val = kwargs.pop(key, None)
+            if val:
+                server_endpoints[sname] = val
+
         auth_spec = service.get("auth")
         if not auth_spec:
             _console.print("[red]No auth config found[/red]")
             return
-        _base_url = endpoint or base_url
-        client = HttpClient(_base_url)
+
+        # Determine which server to authenticate against
+        auth_server_name = None
+        for step in auth_spec.get("steps", []):
+            auth_server_name = step.get("server")
+            if auth_server_name:
+                break
+        auth_url = server_endpoints.get(auth_server_name or "") or endpoint or base_url or "http://localhost:8080"
+
+        client = HttpClient(auth_url)
         if token:
-            save_profile(profile_name, {"token": token, "endpoint": _base_url},
+            fields: dict[str, Any] = {"token": token, "endpoint": endpoint or base_url or "http://localhost:8080"}
+            if server_endpoints:
+                fields["endpoints"] = server_endpoints
+            save_profile(profile_name, fields,
                          set_current=set_default or not get_current_profile())
             _console.print(f"[green]Token saved for '{profile_name}'[/green]")
             return
-        # Set env vars from YAML auth.params mapping
+
+        # Set env vars
         auth_params = auth_spec.get("params", {})
         if username:
             env_user = auth_params.get("username", "KETA_USER")
@@ -58,7 +100,6 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
         if password:
             env_pass = auth_params.get("password", "KETA_PASS")
             os.environ[env_pass] = password
-        # Set arbitrary env vars from --set
         for kv in (set_vars or ()):
             if "=" in kv:
                 k, v = kv.split("=", 1)
@@ -68,9 +109,12 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
         except Exception as e:
             _console.print(f"[red]Auth failed: {e}[/red]")
             return
+
         persist = auth_spec.get("persist", {})
         if persist.get("to") == "cliyard-config":
-            fields = {"endpoint": base_url}
+            fields = {"endpoint": endpoint or base_url or "http://localhost:8080"}
+            if server_endpoints:
+                fields["endpoints"] = server_endpoints
             for fn, fc in persist.get("fields", {}).items():
                 ref = fc.get("from", "")
                 dft = fc.get("default")
@@ -89,6 +133,14 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
                 _console.print(f"[green]Credentials saved for '{profile_name}'[/green]")
             else:
                 _console.print("[yellow]No credentials to save.[/yellow]")
+
+    auth_add_cmd = click.Command(
+        name="add",
+        params=_auth_params,
+        callback=auth_add_callback,
+        short_help="Add/authenticate an environment",
+    )
+    auth.add_command(auth_add_cmd)
 
     @auth.command("status")
     def auth_status():
@@ -125,10 +177,10 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
         else:
             _console.print(f"[red]Not found: {env_name}[/red]")
 
-    @auth.command("logout")
+    @auth.command("rm")
     @click.argument("env_name", required=False)
     @click.option("--all", "clear_all", is_flag=True)
-    def auth_logout(env_name, clear_all):
+    def auth_rm(env_name, clear_all):
         if env_name:
             delete_profile(env_name)
             _console.print(f"[green]Removed: {env_name}[/green]")

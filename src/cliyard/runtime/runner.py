@@ -47,14 +47,22 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
 
     service_name: str = service.get("name", "cliyard")
     description: str = service.get("description", service_name)
-    server: dict[str, Any] = service.get("server", {})
+    servers: dict[str, Any] = service.get("servers", {})
+    default_server_name: str = service.get("_default_server", "")
     auth_spec: dict[str, Any] | None = service.get("auth")
 
-    # Override base_url with saved endpoint from current profile
+    # Get the default server config (base_url may come from saved credentials)
+    default_server: dict[str, Any] = {}
+    if servers:
+        default_server = servers.get(default_server_name) or next(iter(servers.values()), {})
+
+    # Resolve base_url: saved profile > default (no hard YAML base_url required)
     from cliyard.client.credentials import get_current_profile
     saved_profile = get_current_profile()
+    saved_endpoints: dict[str, str] = saved_profile.get("endpoints", {}) if saved_profile else {}
     saved_endpoint = saved_profile.get("endpoint") if saved_profile else None
-    base_url = saved_endpoint or server.get("base_url", "http://localhost:8080")
+    base_url = saved_endpoint or default_server.get("base_url", "http://localhost:8080")
+    prefix = default_server.get("prefix", "")
 
     # Auto-read saved credentials if persist is configured
     pre_filled: dict[str, Any] | None = None
@@ -83,11 +91,13 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
             if not persist_fields:
                 pre_filled = saved
 
-    ctx = ServiceContext(
+    base_ctx = ServiceContext(
         base_url=base_url,
-        prefix=server.get("prefix", ""),
+        prefix=prefix,
         auth_spec=auth_spec,
         pre_filled_auth=pre_filled,
+        servers=servers,
+        timeout=default_server.get("timeout", 30),
     )
 
     cli = click.Group(name=service_name, help=description)
@@ -98,7 +108,7 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
         version_option(version=version, prog_name=service_name)(cli)
 
     from cliyard.runtime.auth_commands import add_auth_commands
-    add_auth_commands(cli, service, base_url=server.get("base_url", "http://localhost:8080"))
+    add_auth_commands(cli, service)
 
     # Group resources by their "group" field for nesting
     # Supports dot-separated paths: "asset.logcluster" → asset → logcluster
@@ -128,7 +138,31 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
 
     for resource in service.get("resources", []):
         group_name = resource.get("group", "")
-        grp = build_resource_group(resource["name"], resource, ctx)
+        # Resolve per-resource server: saved endpoints > saved default > YAML config
+        resource_server_name = resource.get("server", "")
+        if resource_server_name and servers and resource_server_name in servers:
+            srv = servers[resource_server_name]
+            res_base = saved_endpoints.get(resource_server_name) or saved_endpoint or srv.get("base_url", base_url)
+            res_prefix = srv.get("prefix", prefix)
+            res_timeout = srv.get("timeout", 30)
+        elif resource_server_name and saved_endpoints.get(resource_server_name):
+            res_base = saved_endpoints[resource_server_name]
+            res_prefix = prefix
+            res_timeout = 30
+        else:
+            res_base = base_url
+            res_prefix = prefix
+            res_timeout = 30
+
+        res_ctx = ServiceContext(
+            base_url=res_base,
+            prefix=res_prefix,
+            auth_spec=auth_spec,
+            pre_filled_auth=pre_filled,
+            servers=servers,
+            timeout=res_timeout,
+        )
+        grp = build_resource_group(resource["name"], resource, res_ctx)
         if group_name:
             leaf = _ensure_group(group_name)
             groups_data[leaf]["children"].append(grp)
@@ -165,7 +199,7 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
 
     discover_plugins()
     for _cmd_name, _cmd_fn in PluginRegistry.get_all_commands().items():
-        _cmd_fn(cli, ctx)
+        _cmd_fn(cli, base_ctx)
 
     return cli
 

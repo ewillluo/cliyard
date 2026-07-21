@@ -22,9 +22,14 @@ name: ketaops
 version: "1.0"
 description: KetaDB Operations API - 管理仓库、用户、告警、仪表盘等资源
 server:
-  # 服务端地址（由 auth add -e 覆盖）
-  base_url: http://localhost:8080
-  prefix: /api/v1
+  # 服务端地址由 auth add 命令动态传入
+  # 例如多 server:  auth add -n prod --serve4go https://go-api.com --serve4java https://java-api.com
+  # 单 server:     auth add -n prod -e https://api.com
+  # 列表中的 name 会动态生成为 auth add 的 CLI 选项
+  - name: serve4go
+    prefix: /api/v1
+  - name: serve4java
+    prefix: /api/v2
 
 # ── 认证配置 ──────────────────────────────────────────────────────────────
 auth:
@@ -41,6 +46,7 @@ auth:
     # 两步: login → create_token
     - name: keta_login
       type: plugin:keta_login
+      server: serve1
       config:
         login_endpoint: /api/v1/account/login
         token_endpoint: /api/v1/auth/tokens

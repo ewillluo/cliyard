@@ -120,15 +120,22 @@ methods:
 
 ## Customizing commands
 
-Edit `src/{pkg_name}/main.py` to add custom logic, interceptors, or new commands:
+To add custom logic or new commands, use the plugin system instead of editing ``main.py``:
 
 ```python
-# Add a new command directly
-@cli.command()
-def my_custom_command():
-    \"\"\"Custom logic.\"\"\"
-    print("Hello from {CLI_NAME}!")
+# src/{pkg_name}/specs/plugins/my_custom.py
+from cliyard.plugin import register_command
+
+@register_command("mycmd")
+def register_mycmd(cli, ctx):
+    @click.command("mycmd")
+    @click.argument("input")
+    def mycmd(input):
+        click.echo(f"Input: {input}")
+    cli.add_command(mycmd)
 ```
+
+See the **Top-level command plugins** section below for details.
 
 ## Adding plugins
 
@@ -231,6 +238,7 @@ The function receives the top-level ``cli`` (``click.Group``) and ``ctx``
 | ``@register_hook("name")`` | Pre/post request hook |
 | ``@register_method("name")`` | Multi-step business method (referenced in YAML via ``type: plugin:xxx``) |
 | ``@register_command("name")`` | **Top-level Click command** (not tied to any resource) |
+| ``@register_field_resolver("name")`` | Dynamic field value resolver (e.g. auto-fill version) |
 
 ## Multiple environments
 
@@ -243,6 +251,49 @@ The function receives the top-level ``cli`` (``click.Group``) and ``ctx``
 {CLI_NAME} auth switch prod
 {CLI_NAME} --env prod <resource> list
 ```
+
+## Multi-server configuration
+
+When an API is composed of multiple services at different endpoints,
+declare them in ``_auth.yaml`` without hardcoding ``base_url``:
+
+```yaml
+server:
+  - name: serve4go
+    prefix: /api/v1
+  - name: serve4java
+    prefix: /api/v2
+```
+
+The ``name`` fields dynamically generate ``--server-<name>`` options on
+``auth add``. Endpoints are provided at authentication time:
+
+```bash
+# Multi-server: one URL per server
+{CLI_NAME} auth add -n prod \\
+  --server-serve4go https://go-api.example.com \\
+  --server-serve4java https://java-api.example.com
+
+# Single server: use -e as fallback
+{CLI_NAME} auth add -n prod -e https://api.example.com
+```
+
+Resources select their server via the ``server:`` field:
+
+```yaml
+# repos.yaml — uses the default (first) server
+description: 仓库管理
+path: repos
+
+# alerts.yaml — uses the "serve4java" server
+server: serve4java
+description: 告警规则
+path: alerts
+```
+
+If a resource does not specify ``server:``, it uses the first server
+in the list. Auth steps can also specify a ``server:`` field to
+choose which endpoint to authenticate against.
 """
 
 
