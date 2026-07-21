@@ -46,7 +46,6 @@ CLI input → bind & validate → auth chain → assemble request → HTTP call 
 - **YAML-driven**: Add a new API resource by creating a `.yaml` file, no code changes
 - **Plugin system**: 6 extension points for auth, types, hooks, methods, commands, field resolvers
 - **Multi-server**: Support multiple API endpoints in a single CLI
-- **SPL validation**: ANTLR4-based syntax checking for KetaDB SPL queries
 - **Rich output**: Tables, JSON, CSV formatting with datetime conversion
 - **Resource grouping**: Nest related commands under parent groups
 
