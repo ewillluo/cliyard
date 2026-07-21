@@ -1,9 +1,0 @@
-group: dc
-name: install-k8s
-description: KetaAgent K8s 安装命令生成
-path: dc/install/kubernetes
-methods:
-  get:
-    description: 生成 K8s 安装命令
-    http:
-      method: GET

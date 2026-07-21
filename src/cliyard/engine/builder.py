@@ -52,12 +52,10 @@ def _map_param_type(type_str: str) -> type:
     """Convert a YAML param type string to a Python type.
 
     Handles both verbose ('string') and shorthand ('str') forms.
+    Falls back to ``str`` for custom registered field types.
 
     Returns:
         A Python type usable as ``click.Option(type=...)``.
-
-    Raises:
-        ValueError: If the type string is unrecognised.
     """
     mapping: dict[str, type] = {
         "int": int,
@@ -68,7 +66,13 @@ def _map_param_type(type_str: str) -> type:
     try:
         return mapping[type_str]
     except KeyError:
-        raise ValueError(f"Unknown param type: {type_str!r}") from None
+        pass
+    from cliyard.plugin import PluginRegistry as _Reg
+    from cliyard.plugin.discovery import discover_plugins as _Disc
+    _Disc()
+    if _Reg.get_field_type(type_str):
+        return str
+    raise ValueError(f"Unknown param type: {type_str!r}") from None
 
 
 # ---------------------------------------------------------------------------

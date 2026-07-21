@@ -1,0 +1,91 @@
+# 演示 resource grouping + argument 位置参数 + owner/grant/authority
+
+name: order
+description: 订单管理
+path: store/orders
+group: store
+methods:
+  list:
+    description: 订单列表（演示 argument 参数）
+    http:
+      method: GET
+    params:
+      query:
+        - name: status
+          type: enum
+          choices: [placed, approved, delivered]
+          description: 订单状态
+        - name: limit
+          type: int
+          default: 20
+          description: 每页条数
+    output:
+      items_path: $.orders
+      fields:
+        - name: id
+          alias: 订单号
+        - name: petId
+          alias: 宠物ID
+        - name: quantity
+          alias: 数量
+        - name: shipDate
+          alias: 发货日期
+          format: datetime
+        - name: status
+          alias: 状态
+
+  get:
+    description: 订单详情
+    http:
+      method: GET
+      path: store/orders/{{ order_id }}
+    params:
+      path:
+        - name: order_id
+          type: string
+          required: true
+          description: 订单ID
+
+  place:
+    description: 下单（演示 argument + request_body）
+    http:
+      method: POST
+      path: store/orders
+    params:
+      body:
+        - name: pet_id
+          field: petId
+          type: string
+          required: true
+          description: 宠物ID
+        - name: quantity
+          type: int
+          default: 1
+          description: 数量
+        - name: ship_date
+          field: shipDate
+          type: string
+          description: 期望发货日期
+    request_body:
+      petId: '{{ pet_id }}'
+      quantity: '{{ quantity | default(1) }}'
+      shipDate: '{{ ship_date | default("") }}'
+      status: placed
+
+  delete:
+    description: 取消订单（演示 path 参数）
+    http:
+      method: DELETE
+      path: store/orders/{{ order_id }}
+    params:
+      path:
+        - name: order_id
+          type: string
+          required: true
+          description: 订单ID
+
+  inventory:
+    description: 库存统计（演示 enum 返回值）
+    http:
+      method: GET
+      path: store/inventory

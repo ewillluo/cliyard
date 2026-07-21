@@ -1,0 +1,37 @@
+# =============================================================================
+# cliyard demo — Pet Store API
+#
+# 使用方式：
+#   cliyard gen --name petstore --defs-path ./ && cd petstore && pip install -e .
+#   petstore auth add -n demo -t test-token
+#   petstore pet list
+# =============================================================================
+
+name: petstore
+version: "1.0"
+description: Pet Store API Demo - 演示 cliyard 的各种特性
+
+server:
+  - name: main
+    base_url: https://petstore.example.com
+    prefix: /api/v1
+
+auth:
+  id: petstore
+  params:
+    username: PETSTORE_USER
+    password: PETSTORE_PASS
+  steps:
+    - name: inject
+      type: inject
+      config:
+        source: direct
+        field: token
+        into: header
+        name: Authorization
+        prefix: "Bearer "
+  persist:
+    to: cliyard-config
+    fields:
+      token:
+        from: inject

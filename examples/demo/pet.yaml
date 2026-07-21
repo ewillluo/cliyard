@@ -1,0 +1,140 @@
+# 演示各种字段类型和特性
+
+name: pet
+description: 宠物管理
+path: pets
+methods:
+  list:
+    description: 宠物列表（演示 query 参数 + 输出格式化）
+    http:
+      method: GET
+    params:
+      query:
+        - name: status
+          type: enum
+          choices: [available, pending, sold]
+          default: available
+          description: 宠物状态
+        - name: limit
+          type: int
+          default: 20
+          description: 每页条数
+        - name: tags
+          type: string
+          multiple: true
+          description: 标签过滤（可多次传递）
+    output:
+      items_path: $.pets
+      fields:
+        - name: name
+          alias: 名称
+        - name: category
+          alias: 分类
+        - name: status
+          alias: 状态
+        - name: price
+          alias: 价格
+        - name: createTime
+          alias: 创建时间
+          format: datetime
+
+  get:
+    description: 宠物详情（演示 path 参数 + positional argument）
+    http:
+      method: GET
+      path: pets/{{ pet_id }}
+    params:
+      path:
+        - name: pet_id
+          type: string
+          required: true
+          description: 宠物 ID
+
+  create:
+    description: 创建宠物（演示 body 参数 + 多种类型）
+    http:
+      method: POST
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 宠物名称
+        - name: category
+          type: string
+          default: dog
+          description: 宠物分类
+        - name: status
+          type: enum
+          choices: [available, pending, sold]
+          default: available
+          description: 宠物状态
+        - name: price
+          type: float
+          default: 0.0
+          description: 价格
+        - name: age
+          type: int
+          default: 1
+          description: 年龄
+        - name: tags
+          type: string
+          multiple: true
+          description: 标签（可多次传递）
+        - name: vaccinated
+          type: bool
+          default: false
+          description: 已接种疫苗
+    request_body:
+      name: '{{ name }}'
+      category: '{{ category | default("dog") }}'
+      status: '{{ status | default("available") }}'
+      price: '{{ price | default(0.0) }}'
+      age: '{{ age | default(1) }}'
+      tags: '{{ tags | tojson }}'
+      vaccinated: '{{ vaccinated | default(false) }}'
+
+  update:
+    description: 更新宠物（演示 file 类型 + 部分更新）
+    http:
+      method: PUT
+      path: pets/{{ pet_id }}
+    params:
+      path:
+        - name: pet_id
+          type: string
+          required: true
+          description: 宠物 ID
+      body:
+        - name: name
+          type: string
+          description: 宠物名称
+        - name: category
+          type: string
+          description: 宠物分类
+        - name: status
+          type: enum
+          choices: [available, pending, sold]
+          description: 宠物状态
+        - name: price
+          type: float
+          description: 价格
+        - name: avatar
+          type: file
+          description: 头像文件
+
+  delete:
+    description: 删除宠物（演示 POST 批量操作 + JSON array body）
+    http:
+      method: POST
+      path: pets:batchDelete
+    params:
+      body:
+        - name: pet_id
+          field: ids
+          type: string
+          required: true
+          multiple: true
+          description: 宠物 ID（可多次传递）
+    request_body:
+      ids: '{{ pet_id | tojson }}'

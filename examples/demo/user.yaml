@@ -1,0 +1,70 @@
+# 演示: custom field type, file upload, hooks, field resolver
+
+name: user
+description: 用户管理
+path: users
+methods:
+  list:
+    description: 用户列表
+    http:
+      method: GET
+    output:
+      items_path: $.users
+      fields:
+        - name: name
+          alias: 用户名
+        - name: phone
+          alias: 手机号
+        - name: email
+          alias: 邮箱
+
+  create:
+    description: 创建用户（演示自定义字段类型 phone + 字段解析器 + 钩子）
+    http:
+      method: POST
+      path: users
+      query:
+        ts: true  # 静态 query 参数
+    hooks:
+      pre:
+        - add_timestamp  # 请求前自动添加时间戳
+    params:
+      body:
+        - name: name
+          type: string
+          required: true
+          description: 用户名
+        - name: phone
+          type: phone  # 自定义字段类型：手机号验证
+          required: true
+          description: 手机号
+        - name: email
+          type: string
+          description: 邮箱
+        - name: created_at
+          type: string
+          resolver: plugin:current_timestamp  # 字段解析器
+          description: 创建时间（自动填充）
+    request_body:
+      name: '{{ name }}'
+      phone: '{{ phone }}'
+      email: '{{ email | default("") }}'
+      createdAt: '{{ created_at }}'
+
+  avatar:
+    description: 上传头像（演示 file 类型 + multipart）
+    http:
+      method: POST
+      path: users/{{ user_id }}/avatar
+    body_type: multipart
+    params:
+      path:
+        - name: user_id
+          type: string
+          required: true
+          description: 用户 ID
+      body:
+        - name: file
+          type: file
+          required: true
+          description: 头像文件
