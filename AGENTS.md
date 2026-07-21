@@ -8,6 +8,14 @@ Two usage modes:
 - **Library mode**: `create_cli("./specs/")` → returns `click.Group` — dynamic, no gen step
 - **Gen mode**: `cliyard gen --name mycli --defs-path ./specs/` → generates pip-installable package
 
+## Repository & Release
+
+- **GitHub**: https://github.com/guolong123/cliyard
+- **PyPI**: https://pypi.org/project/cliyard/
+- **Remote**: `git@github.com:guolong123/cliyard.git`
+- **Publish**: Create a GitHub Release → `.github/workflows/publish.yml` auto-builds & uploads to PyPI
+- **Manual publish**: `python3 -m build && twine upload dist/*`
+
 ## Key commands
 
 ```bash

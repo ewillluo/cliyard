@@ -1,91 +1,72 @@
 # cliyard
 
-**CLI + YAML + Yard** — a framework that generates CLI commands from YAML specs. Define your REST API in a few YAML files, and cliyard produces a fully-structured Click CLI with parameters, types, and auto-generated help. Originally inspired by [ketacli](https://gitee.com/xishuhq/ketacli)'s YAML-driven architecture, now generalized for any REST API.
+**CLI + YAML + Yard** — a framework that generates CLI commands from YAML specs. Define your REST API in a few YAML files, and cliyard produces a fully-structured Click CLI with parameters, types, response formatting, and auto-generated help.
 
 ## Installation
 
 ```bash
 pip install cliyard
-```
 
-For local development:
-
-```bash
+# Or for development
 pip install -e .
 ```
 
 ## Quick Start
 
 ```bash
-# Explore the example spec
-cliyard --spec-dir examples/ketacli-repos/ repos list --help
+# Generate a CLI from spec files
+cliyard gen --name mycli --defs-path ./specs/
+cd mycli && pip install -e .
 
-# Usage: repos list [OPTIONS]
-#   --page INTEGER        Page number
-#   --search TEXT         Search keyword
-#   --help                Show this message and exit.
+# Use it
+mycli --help
+mycli repos list --page-size 10
 ```
 
 ## How It Works
 
-cliyard turns a directory of YAML files into CLI commands. One directory equals one API service. Each YAML file (except `_service.yaml`) becomes a resource group with subcommands for every defined method.
+cliyard turns a directory of YAML files into CLI commands. One directory equals one API service. Each YAML file becomes a resource group with subcommands for every defined method.
 
 ```
-your-api/                          ┌─────────────────────────────────┐
-├── _service.yaml  ── service ──►  │  cliyard Engine                 │
-├── repos.yaml     ── resource ──► │                                 │
-├── users.yaml     ── resource ──► │  Loader ──► Builder ──► Click   │
-└── ...                            │    │            │           │    │
-                                   │    │     Auth Chain          │    │
-                                   │    ▼            ▼           ▼    │
-                                   │  YAML       Commands    CLI run  │
-                                   │  parsing    + params              │
-                                   └─────────────────────────────────┘
+specs/
+├── _auth.yaml      # Service config: name, servers, auth chain
+├── repos.yaml      # Resource: repos (list, create, get, update, delete)
+├── users.yaml      # Resource: users (list, create, delete)
+└── _groups.yaml    # (optional) Group definitions for nesting
 ```
 
 **Data flow** for a single invocation:
 
 ```
-cliyard --spec-dir examples/ketacli-repos/ repos list --page 1
-
-    1. Loader reads _service.yaml + repos.yaml
-    2. Auth chain runs (env → login → inject token)
-    3. Builder generates Click commands from method specs
-    4. Params are typed (int, string, enum, bool) and validated
-    5. (Future) HTTP request is assembled and sent
-    6. (Future) Response is formatted with Rich tables
+CLI input → bind & validate → auth chain → assemble request → HTTP call → format response
 ```
 
-## Directory Structure
+## Features
 
-Each service is a directory containing a `_service.yaml` for service-level config and one YAML file per resource:
+- **YAML-driven**: Add a new API resource by creating a `.yaml` file, no code changes
+- **Plugin system**: 6 extension points for auth, types, hooks, methods, commands, field resolvers
+- **Multi-server**: Support multiple API endpoints in a single CLI
+- **SPL validation**: ANTLR4-based syntax checking for KetaDB SPL queries
+- **Rich output**: Tables, JSON, CSV formatting with datetime conversion
+- **Resource grouping**: Nest related commands under parent groups
 
-```
-ketacli-repos/
-├── _service.yaml      # Service config: name, server, auth
-└── repos.yaml         # Resource: repos (list, create, get, update, delete)
-```
+## Examples
 
-- `_service.yaml` defines the server URL, authentication chain, and global settings.
-- Resource files (`repos.yaml`, `users.yaml`, etc.) define the methods, parameters, and output format for each API resource.
-- Files prefixed with `_service.` (like `_service.local.yaml`) are reserved for future local overrides and are ignored during loading.
+See the [examples/](examples/) directory for ready-to-use spec sets:
 
-## Comparison with ketacli
+- `examples/ketaops/` — KetaDB Operations API (40+ resources)
+- `examples/ketacli-repos/` — Simple repository management API
+- `examples/xiyu/` — xiyu platform API
 
-| Feature | cliyard | ketacli |
-|---------|---------|---------|
-| API scope | Any REST API | KetaDB only |
-| Config format | One directory per API service | Single YAML tree per resource |
-| Auth model | Chain-based (env, login, inject) | Built-in, KetaDB-specific |
-| Auth caching | In-memory TTL token cache | Session-based |
-| Param types | string, int, float, bool, enum | Pre-defined per command |
-| Adding resources | Add a YAML file to the directory | Requires code changes |
-| CLI generation | Dynamic from spec at runtime | Pre-built Click commands |
-| Purpose | General-purpose API-to-CLI framework | KetaDB management tool |
+## Documentation
 
-## Creating Your Own Spec
+Generated CLI projects include a `README.md` with full usage docs covering:
 
-See [examples/README.md](examples/README.md) for a step-by-step guide to creating new API specs.
+- Usage & environment management
+- Adding new resources
+- Plugin authoring (all 6 plugin types)
+- Multi-server configuration
+- Custom method plugins
 
 ## License
 
