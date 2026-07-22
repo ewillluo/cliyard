@@ -36,7 +36,7 @@ def parse_response(response: requests.Response | dict, output_spec: dict) -> dic
             or no match).
     """
     # --- 1. Deserialize body ---------------------------------------------------
-    if isinstance(response, dict):
+    if isinstance(response, (dict, list)):
         data = response
     else:
         try:

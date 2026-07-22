@@ -400,7 +400,14 @@ def _make_callback(
                 else:
                     console.print(format_as_json(data))
             else:
-                console.print(format_as_json(resp_data))
+                if output_format == "json":
+                    console.print(format_as_json(resp_data))
+                elif output_format == "csv" and isinstance(resp_data, list) and resp_data:
+                    fields = [{"name": k, "alias": k} for k in resp_data[0]]
+                    console.print(format_as_csv({"items": resp_data, "total": len(resp_data), "fields": fields}, fields))
+                else:
+                    fields = [{"name": k, "alias": k} for k in resp_data[0]] if isinstance(resp_data, list) and resp_data else []
+                    console.print(format_as_table({"items": resp_data if isinstance(resp_data, list) else [resp_data], "total": 0, "fields": fields}, fields))
 
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
