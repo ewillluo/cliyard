@@ -1,20 +1,21 @@
 """cliyard.engine.builder — Dynamic Click command builder.
- 
+
 Generates Click groups and commands from loaded YAML resource specs.
 Follows a pipeline pattern where each command callback runs through stages:
- 
+
     1. bind_and_validate() — validate params against spec
     2. run_auth_chain()  — authenticate via env vars / login
     3. assemble_request() — build HTTP request from validated params
     4. http_request()  — execute HTTP call
     5. parse_response() + format — parse and display output
- 
+
 This avoids ketacli's giant closure pattern by splitting each stage into
 a standalone function that can be tested and evolved independently.
 """
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -378,15 +379,15 @@ def _make_callback(
                 elif items:
                     fields = output_spec.get("fields", [])
                     if output_format == "json":
-                        console.print(format_as_json(data))
+                        sys.stdout.write(format_as_json(data) + "\n")
                     elif output_format == "csv":
                         console.print(format_as_csv(data, fields))
                     else:
                         console.print(format_as_table(data, fields))
                 else:
-                    console.print(format_as_json(data))
+                    sys.stdout.write(format_as_json(data) + "\n")
             else:
-                console.print(format_as_json(response.json()))
+                sys.stdout.write(format_as_json(response.json()) + "\n")
 
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
