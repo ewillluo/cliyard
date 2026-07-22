@@ -9,20 +9,6 @@ import json
 from typing import Any
 
 
-def _deep_get(obj: dict, path: str) -> Any:
-    """Resolve a dotted field path into a nested dict, e.g. ``"a.b.c"`` → ``obj["a"]["b"]["c"]``."""
-    if not path:
-        return ""
-    parts = path.split(".")
-    current: Any = obj
-    for part in parts:
-        if isinstance(current, dict):
-            current = current.get(part, "")
-        else:
-            return ""
-    return current if current is not None else ""
-
-
 # ---------------------------------------------------------------------------
 # JSON formatter
 # ---------------------------------------------------------------------------
@@ -78,7 +64,7 @@ def format_as_table(data: dict, fields: list[dict] | None = None, width: int | N
         table.add_column(field.get("alias") or field["name"])
 
     for item in items:
-        row = [_format_field_value(_deep_get(item, f["name"]), f) for f in fields]
+        row = [_format_field_value(item.get(f["name"], ""), f) for f in fields]
         table.add_row(*row)
 
     buf = io.StringIO()
@@ -108,7 +94,7 @@ def format_as_csv(data: dict, fields: list[dict]) -> str:
     writer = csv.writer(output)
     writer.writerow(field_names)
     for item in items:
-        row = [_format_field_value(_deep_get(item, f["name"]), f) for f in fields] if fields else [str(item.get(k, "")) for k in items[0].keys()]
+        row = [_format_field_value(item.get(f["name"], ""), f) for f in fields] if fields else [str(item.get(k, "")) for k in items[0].keys()]
         writer.writerow(row)
     return output.getvalue()
 
