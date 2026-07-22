@@ -350,6 +350,7 @@ def _make_callback(
             )
 
             # Stage 5: parse & format response
+            resp_data = response.json()
             output_spec: dict[str, Any] = method_spec.get("output", {})
 
             if method_spec.get("response_type") == "file":
@@ -373,7 +374,6 @@ def _make_callback(
             elif output_spec.get("items_path"):
                 from cliyard.engine.hooks import run_post_response_hooks as _run_hooks
 
-                resp_data = response.json()
                 # Stage 5a: before-extract hooks — transform raw response before JSONPath extraction
                 _raw_hooks = hooks_config.get("before-extract", [])
                 if _raw_hooks:
