@@ -439,7 +439,7 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
     # Built-in --format option for list command
     click_params.append(
         click.Option(
-            ["-f", "--format"],
+            ["--format"],
             type=click.Choice(["table", "json", "csv"]),
             default="table",
             help="Output format",
