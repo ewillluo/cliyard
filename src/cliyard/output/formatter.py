@@ -105,20 +105,8 @@ def format_as_csv(data: dict, fields: list[dict]) -> str:
 
 
 def _field_value(item: dict, field: dict) -> Any:
-    """Extract a field value from *item*.
-    When ``deep: true`` is set on the field definition, dotted names
-    (e.g. ``"a.b.c"``) are resolved recursively through nested dicts."""
-    name = field["name"]
-    if field.get("deep"):
-        val: Any = item
-        for part in name.split("."):
-            if isinstance(val, dict):
-                val = val.get(part, "")
-            else:
-                val = ""
-                break
-        return val if val is not None else ""
-    return item.get(name, "")
+    """Extract a field value from *item*."""
+    return item.get(field["name"], "")
 
 
 # ---------------------------------------------------------------------------
