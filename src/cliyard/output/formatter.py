@@ -64,7 +64,7 @@ def format_as_table(data: dict, fields: list[dict] | None = None, width: int | N
         table.add_column(field.get("alias") or field["name"])
 
     for item in items:
-        row = [_format_field_value(item.get(f["name"], ""), f) for f in fields]
+        row = [_format_field_value(_field_value(item, f), f) for f in fields]
         table.add_row(*row)
 
     buf = io.StringIO()
@@ -94,9 +94,30 @@ def format_as_csv(data: dict, fields: list[dict]) -> str:
     writer = csv.writer(output)
     writer.writerow(field_names)
     for item in items:
-        row = [_format_field_value(item.get(f["name"], ""), f) for f in fields] if fields else [str(item.get(k, "")) for k in items[0].keys()]
+        row = [_format_field_value(_field_value(item, f), f) for f in fields] if fields else [str(item.get(k, "")) for k in items[0].keys()]
         writer.writerow(row)
     return output.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Field value helpers
+# ---------------------------------------------------------------------------
+
+
+def _field_value(item: dict, field: dict) -> Any:
+    """Extract a field value from *item*, supporting dotted paths when ``deep: true``."""
+    name = field["name"]
+    if field.get("deep"):
+        parts = name.split(".")
+        val: Any = item
+        for p in parts:
+            if isinstance(val, dict):
+                val = val.get(p, "")
+            else:
+                val = ""
+                break
+        return val if val is not None else ""
+    return item.get(name, "")
 
 
 # ---------------------------------------------------------------------------
