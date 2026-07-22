@@ -349,6 +349,13 @@ def _make_callback(
                 timeout=_timeout,
             )
 
+            # Run post-response hooks (transform response data before formatting)
+            from cliyard.engine.hooks import run_post_response_hooks
+            post_hooks = hooks_config.get("post", [])
+            resp_data = response.json()
+            if post_hooks:
+                resp_data = run_post_response_hooks(post_hooks, resp_data)
+
             # Stage 5: parse & format response
             output_spec: dict[str, Any] = method_spec.get("output", {})
 
@@ -371,7 +378,7 @@ def _make_callback(
                             f.write(chunk)
                 console.print(f"[green]Downloaded: {fname}[/green]")
             elif output_spec.get("items_path"):
-                data = parse_response(response, output_spec)
+                data = parse_response(resp_data, output_spec)
                 items = data.get("items")
                 if items is not None and len(items) == 0:
                     console.print("[yellow]No results found.[/yellow]")
@@ -386,7 +393,7 @@ def _make_callback(
                 else:
                     console.print(format_as_json(data))
             else:
-                console.print(format_as_json(response.json()))
+                console.print(format_as_json(resp_data))
 
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")

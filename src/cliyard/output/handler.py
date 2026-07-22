@@ -12,11 +12,12 @@ class ResponseParseError(Exception):
     """Raised when JSONPath extraction fails."""
 
 
-def parse_response(response: requests.Response, output_spec: dict) -> dict:
+def parse_response(response: requests.Response | dict, output_spec: dict) -> dict:
     """Parse an API response using JSONPath to locate data.
 
     Args:
-        response: HTTP response object (already checked for 2xx by the caller).
+        response: HTTP response object or pre-parsed dict (already checked
+            for 2xx by the caller).
         output_spec: Output specification from YAML service definition.
 
             - items_path (str): JSONPath expression for the list of items,
@@ -35,12 +36,15 @@ def parse_response(response: requests.Response, output_spec: dict) -> dict:
             or no match).
     """
     # --- 1. Deserialize body ---------------------------------------------------
-    try:
-        data: Any = response.json()
-    except ValueError as exc:
-        raise ResponseParseError(
-            f"Response body is not valid JSON: {exc}"
-        ) from exc
+    if isinstance(response, dict):
+        data = response
+    else:
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise ResponseParseError(
+                f"Response body is not valid JSON: {exc}"
+            ) from exc
 
     # --- 2. Extract items via JSONPath -----------------------------------------
     items_path = output_spec.get("items_path")
