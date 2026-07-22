@@ -16,6 +16,9 @@ from typing import Any
 from cliyard.plugin import PluginRegistry
 
 
+_scanned_dirs: set[str] = set()
+
+
 def discover_plugins(spec_dir: str | None = None) -> None:
     """Discover plugins from all sources.
 
@@ -23,23 +26,32 @@ def discover_plugins(spec_dir: str | None = None) -> None:
     2. Spec directory: ``{spec_dir}/plugins/*.py``
     3. Global dir: ``~/.cliyard/plugins/*.py``
 
-    Only runs once; subsequent calls are no-ops after first successful load.
+    Entry points are scanned once only. Directories are scanned at most once
+    each, so subsequent calls with new directories will pick up new files.
 
     Args:
         spec_dir: Optional path to a spec directory whose ``plugins/``
             subdirectory should be scanned.
     """
-    if PluginRegistry._loaded:
-        return
+    global _scanned_dirs
+    if not _scanned_dirs:
+        _discover_entry_points()
+        PluginRegistry._loaded = True
 
-    _discover_entry_points()
     if spec_dir:
-        _discover_directory(Path(spec_dir) / "plugins")
-        # Also check alongside spec dir (e.g. src/<pkg>/plugins/)
-        _discover_directory(Path(spec_dir).parent / "plugins")
-    _discover_directory(Path.home() / ".cliyard" / "plugins")
+        _scan_if_new(Path(spec_dir) / "plugins")
+        _scan_if_new(Path(spec_dir).parent / "plugins")
+    _scan_if_new(Path.home() / ".cliyard" / "plugins")
 
-    PluginRegistry._loaded = True
+
+def _scan_if_new(plugins_dir: Path) -> None:
+    """Scan *plugins_dir* if it hasn't been scanned before."""
+    global _scanned_dirs
+    key = str(plugins_dir.resolve())
+    if key in _scanned_dirs:
+        return
+    _scanned_dirs.add(key)
+    _discover_directory(plugins_dir)
 
 
 def _discover_entry_points() -> None:
