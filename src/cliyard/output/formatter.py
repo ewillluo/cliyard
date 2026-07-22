@@ -105,14 +105,15 @@ def format_as_csv(data: dict, fields: list[dict]) -> str:
 
 
 def _field_value(item: dict, field: dict) -> Any:
-    """Extract a field value from *item*, supporting dotted paths when ``deep: true``."""
+    """Extract a field value from *item*.
+    If the field name contains dots (e.g. ``"a.b.c"``), it is resolved
+    recursively into the nested dict; otherwise a flat lookup is used."""
     name = field["name"]
-    if field.get("deep"):
-        parts = name.split(".")
+    if "." in name:
         val: Any = item
-        for p in parts:
+        for part in name.split("."):
             if isinstance(val, dict):
-                val = val.get(p, "")
+                val = val.get(part, "")
             else:
                 val = ""
                 break
