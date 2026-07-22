@@ -333,9 +333,9 @@ def _make_callback(
             from cliyard.engine.hooks import run_pre_request_hooks
 
             hooks_config = method_spec.get("hooks", {})
-            pre_hooks = hooks_config.get("pre", [])
-            if pre_hooks:
-                req = run_pre_request_hooks(pre_hooks, req)
+            _pre_hooks = hooks_config.get("pre-request", [])
+            if _pre_hooks:
+                req = run_pre_request_hooks(_pre_hooks, req)
 
             # Stage 4: execute HTTP request
             _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
@@ -374,17 +374,17 @@ def _make_callback(
                 from cliyard.engine.hooks import run_post_response_hooks as _run_hooks
 
                 resp_data = response.json()
-                # Stage 5a: post-raw hooks — transform raw response before extraction
-                _raw_hooks = hooks_config.get("post-raw", [])
+                # Stage 5a: before-extract hooks — transform raw response before JSONPath extraction
+                _raw_hooks = hooks_config.get("before-extract", [])
                 if _raw_hooks:
                     resp_data = _run_hooks(_raw_hooks, resp_data)
 
                 data = parse_response(resp_data, output_spec)
 
-                # Stage 5b: post-parse hooks — transform parsed {items, total, fields}
-                _parse_hooks = hooks_config.get("post-parse", [])
-                if _parse_hooks:
-                    data = _run_hooks(_parse_hooks, data)
+                # Stage 5b: before-format hooks — transform parsed {items, total, fields} before output
+                _fmt_hooks = hooks_config.get("before-format", [])
+                if _fmt_hooks:
+                    data = _run_hooks(_fmt_hooks, data)
 
                 items = data.get("items")
                 if items is not None and len(items) == 0:
