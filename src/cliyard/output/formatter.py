@@ -146,16 +146,23 @@ def _fmt_timestamp(val: int, raw: bool = False) -> str:
 
 
 def format_rows_as_json(result: dict) -> str:
-    """Format a fields+rows result dict as pretty JSON.
+    """Format a fields+rows result dict as a list of key-value objects.
+
+    Converts the raw ``{"fields": [...], "rows": [[...], ...]}`` format into
+    ``[{"field1": val1, "field2": val2}, ...]`` for easier programmatic use.
 
     Args:
         result: Dict with ``fields`` and ``rows`` keys.
 
     Returns:
-        Indented JSON string.
+        Indented JSON string (list of objects).
     """
     import json
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    fields = result.get("fields", [])
+    rows = result.get("rows", [])
+    field_names = [f["name"] if isinstance(f, dict) else str(f) for f in fields]
+    objects = [dict(zip(field_names, row)) for row in rows]
+    return json.dumps(objects, indent=2, ensure_ascii=False)
 
 
 def format_rows_as_table(result: dict, *, raw: bool = False) -> str | None:
