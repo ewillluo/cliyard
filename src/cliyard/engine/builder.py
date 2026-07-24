@@ -237,7 +237,7 @@ def _make_callback(
 
         try:
             # Extract built-in options (--format) before validation
-            output_format: str = kwargs.pop("format", "table")
+            output_format: str = kwargs.pop("format", "json")
 
             # Ensure http.path falls back to resource path (not filename)
             if not method_spec.get("http", {}).get("path"):
@@ -462,7 +462,7 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
         click.Option(
             ["--format"],
             type=click.Choice(["table", "json", "csv"]),
-            default="table",
+            default="json",
             help="Output format",
             show_default=True,
         )
