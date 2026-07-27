@@ -90,23 +90,24 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
     else:
         raise ValueError(f"{service_path}: 'server' is required and must be a mapping or list")
 
-    # Scan for resource YAML files
+    # Scan for resource YAML files (root dir + resources/ subdir)
     resources: list[dict[str, Any]] = []
-    for yaml_file in sorted(spec_dir.glob("*.yaml")):
-        if _is_resource_file(yaml_file):
-            resource_name = yaml_file.stem  # e.g. "repos" from "repos.yaml"
-            resource_spec = _load_yaml(yaml_file)
+    for scan_dir in (spec_dir, spec_dir / "resources"):
+        if not scan_dir.is_dir():
+            continue
+        for yaml_file in sorted(scan_dir.glob("*.yaml")):
+            if _is_resource_file(yaml_file):
+                resource_spec = _load_yaml(yaml_file)
 
-            # Validate resource has methods
-            if not isinstance(resource_spec.get("methods"), dict):
-                raise ValueError(
-                    f"{yaml_file}: 'methods' is required and must be a mapping"
-                )
+                if not isinstance(resource_spec.get("methods"), dict):
+                    raise ValueError(
+                        f"{yaml_file}: 'methods' is required and must be a mapping"
+                    )
 
-            # Tag with resource name for downstream use (YAML name > filename)
-            if "name" not in resource_spec:
-                resource_spec["name"] = resource_name
-            resources.append(resource_spec)
+                resource_name = resource_spec.get("name") or yaml_file.stem
+                if "name" not in resource_spec:
+                    resource_spec["name"] = resource_name
+                resources.append(resource_spec)
 
     # Ensure auth defaults to empty steps
     if "auth" not in service:
@@ -154,18 +155,26 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
 def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
     """Load flow definitions from a spec directory.
 
-    ``_flows.yaml`` contains a ``flows:`` key.  Each flow's ``steps:`` can be:
+    Looks for ``flows/_flows.yaml`` (or ``_flows.yaml`` at root for backward
+    compatibility).  Each flow's ``steps:`` can be:
 
     * A **list** of step dicts (inline).
     * A **string** file path (load steps from that file).
 
-    Steps lists also support ``include: <path>`` entries, which resolve to the
-    steps in the referenced file (Ansible-playbook style).
-
-    Returns an empty list if ``_flows.yaml`` does not exist.
+    Step lists also support ``include: <path>`` entries, which resolve to steps
+    in the referenced file (Ansible-playbook style).  All file paths are
+    resolved relative to the directory containing ``_flows.yaml``.
     """
-    spec_dir = Path(spec_dir)
-    flows_path = spec_dir / "_flows.yaml"
+    spec_dir = Path(spec_dir).resolve()
+
+    # Look in flows/ subdirectory first, then root (backward compat)
+    flows_dir = spec_dir / "flows"
+    if flows_dir.is_dir():
+        flows_path = flows_dir / "_flows.yaml"
+        base_dir = flows_dir
+    else:
+        flows_path = spec_dir / "_flows.yaml"
+        base_dir = spec_dir
 
     if not flows_path.exists():
         return []
@@ -181,7 +190,7 @@ def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
             continue
 
         raw_steps = fdict.get("steps")
-        steps = _resolve_steps(raw_steps, spec_dir, flows_path)
+        steps = _resolve_steps(raw_steps, base_dir, flows_path)
 
         if not steps:
             continue
