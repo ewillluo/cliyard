@@ -24,6 +24,14 @@ from typing import Any
 
 import yaml
 
+from cliyard.engine.flow import (
+    FlowSpec,
+    FlowStep,
+    ForEachConfig,
+    RetryConfig,
+    UntilConfig,
+)
+
 
 def load_service(spec_dir: str | Path) -> dict[str, Any]:
     """Load a cliyard service from a directory.
@@ -143,6 +151,67 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
     return resource
 
 
+def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
+    """Load flow definitions from ``_flows.yaml`` in a spec directory.
+
+    Reads ``_flows.yaml`` and parses each flow into a :class:`FlowSpec`
+    dataclass. Returns an empty list if the file does not exist.
+
+    Args:
+        spec_dir: Path to the service spec directory.
+
+    Returns:
+        List of :class:`FlowSpec` instances.
+
+    Raises:
+        FileNotFoundError: If ``_flows.yaml`` exists but cannot be read.
+        yaml.YAMLError: If the YAML has syntax errors.
+        ValueError: If a flow is missing required fields (``command``, ``steps``).
+    """
+    spec_dir = Path(spec_dir)
+    flows_path = spec_dir / "_flows.yaml"
+
+    if not flows_path.exists():
+        return []
+
+    raw = _load_yaml(flows_path)
+    flows_raw = raw.get("flows", {})
+
+    if not flows_raw:
+        return []
+
+    flows: list[FlowSpec] = []
+    for flow_name, flow_dict in flows_raw.items():
+        if not isinstance(flow_dict, dict):
+            raise ValueError(
+                f"{flows_path}: Flow '{flow_name}' must be a mapping"
+            )
+        if "command" not in flow_dict:
+            raise ValueError(
+                f"{flows_path}: Flow '{flow_name}' must have a 'command' field"
+            )
+        if not flow_dict.get("steps"):
+            raise ValueError(
+                f"{flows_path}: Flow '{flow_name}' must have non-empty 'steps'"
+            )
+
+        steps = [
+            _parse_flow_step(step_dict, flows_path)
+            for step_dict in flow_dict["steps"]
+        ]
+
+        flow = FlowSpec(
+            command=flow_dict["command"],
+            description=flow_dict.get("description", ""),
+            params=flow_dict.get("params", {}),
+            steps=steps,
+            hooks=flow_dict.get("hooks"),
+        )
+        flows.append(flow)
+
+    return flows
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -157,6 +226,70 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         raise ValueError(f"{path}: YAML must parse to a mapping (dict), got {type(data).__name__}")
 
     return data
+
+
+def _parse_flow_step(step_dict: dict[str, Any], flows_path: Path) -> FlowStep:
+    """Parse a single flow step from a YAML dict into a FlowStep dataclass.
+
+    Args:
+        step_dict: Raw dict parsed from YAML.
+        flows_path: Path to _flows.yaml (for error messages).
+
+    Returns:
+        A :class:`FlowStep` instance.
+
+    Raises:
+        ValueError: If the step is missing a required ``id``.
+    """
+    step_id = step_dict.get("id")
+    if not step_id:
+        raise ValueError(f"{flows_path}: Each step must have an 'id' field")
+
+    for_each = None
+    if "for_each" in step_dict:
+        fe = step_dict["for_each"]
+        for_each = ForEachConfig(
+            items=fe["items"],
+            as_name=fe["as"],
+            steps=[_parse_flow_step(s, flows_path) for s in fe.get("steps", [])],
+        )
+
+    retry = None
+    if "retry" in step_dict:
+        r = step_dict["retry"]
+        retry = RetryConfig(
+            max_attempts=r.get("max_attempts", 3),
+            delay=r.get("delay", 1),
+            backoff=r.get("backoff"),
+            on_exhausted=r.get("on_exhausted"),
+        )
+
+    until = None
+    if "until" in step_dict:
+        u = step_dict["until"]
+        until = UntilConfig(
+            max_iterations=u.get("max_iterations", 30),
+            interval=u.get("interval", 5),
+            condition=u.get("condition", ""),
+            timeout_action=u.get("timeout_action", "abort"),
+            timeout_message=u.get("timeout_message", ""),
+        )
+
+    return FlowStep(
+        id=step_id,
+        description=step_dict.get("description", ""),
+        use=step_dict.get("use", ""),
+        params=step_dict.get("params", {}),
+        extract=step_dict.get("extract"),
+        on_result=step_dict.get("on_result"),
+        on_failure=step_dict.get("on_failure"),
+        assert_=step_dict.get("assert"),
+        for_each=for_each,
+        retry=retry,
+        until=until,
+        hooks=step_dict.get("hooks"),
+        type=step_dict.get("type", ""),
+    )
 
 
 def _is_resource_file(path: Path) -> bool:
