@@ -1,0 +1,130 @@
+# =============================================================================
+# Flow Definitions for Pet Store Demo
+#
+# 流程定义 — 通过多个步骤的组合实现复杂业务场景
+# =============================================================================
+
+flows:
+  # ---------------------------------------------------------------------------
+  # add_user — 新增用户流程（查→判→创→验）
+  #
+  # 使用方式:
+  #   petstore add-user --name=张三 --phone=13800138000
+  #
+  # 流程说明:
+  #   1. check_user — 查询用户是否存在
+  #   2. decision  — 如果已存在则返回，否则继续
+  #   3. create_user — 创建用户
+  #   4. verify_user — 验证用户已创建成功
+  # ---------------------------------------------------------------------------
+  add_user:
+    description: 新增用户流程（查→判→创→验）
+    command: add-user
+    params:
+      query:
+        - name: name
+          type: string
+          required: true
+          description: 用户名
+        - name: phone
+          type: string
+          description: 手机号
+    steps:
+      - id: check_user
+        description: 查询用户是否存在
+        use: user.list
+        params:
+          query:
+            name: '{{ flow.name }}'
+        extract:
+          found_users: $.users
+      - id: decision
+        on_result:
+          - if: '{{ step.check_user.found_users | length > 0 }}'
+            then:
+              - type: echo
+                message: "用户 {{ flow.name }} 已存在，跳过"
+              - action: return
+      - id: create_user
+        description: 创建用户
+        use: user.create
+        params:
+          body:
+            name: '{{ flow.name }}'
+            phone: '{{ flow.phone | default("") }}'
+      - id: verify_user
+        description: 验证用户已创建
+        use: user.list
+        params:
+          query:
+            name: '{{ flow.name }}'
+
+  # ---------------------------------------------------------------------------
+  # retry_demo — 演示重试机制
+  #
+  # 使用方式:
+  #   petstore retry-demo
+  #
+  # 流程说明:
+  #   fetch_data 步骤配置了重试（最多3次，间隔1秒），
+  #   当 HTTP 请求失败时自动重试。
+  # ---------------------------------------------------------------------------
+  retry_demo:
+    description: 演示重试机制的流程
+    command: retry-demo
+    steps:
+      - id: fetch_data
+        description: 获取数据（可重试）
+        use: pet.list
+        retry:
+          max_attempts: 3
+          delay: 1
+        params:
+          query:
+            status: '{{ flow.status | default("available") }}'
+
+  # ---------------------------------------------------------------------------
+  # plugin_demo — 演示插件步骤
+  #
+  # 使用方式:
+  #   petstore plugin-demo
+  #
+  # 流程说明:
+  #   包含一个 type: plugin:xxx 步骤，交由已注册的插件执行。
+  #   需先注册名为 my_step 的 step type 插件。
+  # ---------------------------------------------------------------------------
+  plugin_demo:
+    description: 演示插件步骤的流程
+    command: plugin-demo
+    steps:
+      - id: custom_step
+        description: 执行自定义插件步骤
+        type: plugin:my_step
+        params:
+          input: hello
+      - id: list_pets
+        description: 列出宠物
+        use: pet.list
+
+  # ---------------------------------------------------------------------------
+  # hook_demo — 演示生命周期钩子
+  #
+  # 使用方式:
+  #   petstore hook-demo
+  #
+  # 流程说明:
+  #   配置了 on_start / on_end 钩子，在流程开始和结束时触发。
+  #   需先注册名为 notify_start 和 notify_end 的 hook 插件。
+  # ---------------------------------------------------------------------------
+  hook_demo:
+    description: 演示生命周期钩子的流程
+    command: hook-demo
+    hooks:
+      on_start:
+        - notify_start
+      on_end:
+        - notify_end
+    steps:
+      - id: list_pets
+        description: 列出宠物
+        use: pet.list
