@@ -207,7 +207,7 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
 
     flows = load_flows(spec_path)
     for flow_spec in flows:
-        flow_cmd = build_flow_command(flow_spec, base_ctx)
+        flow_cmd = build_flow_command(flow_spec, base_ctx, service)
         cli.add_command(flow_cmd)
 
     return cli

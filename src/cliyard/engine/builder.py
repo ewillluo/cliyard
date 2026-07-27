@@ -627,7 +627,11 @@ def build_resource_group(
 # ---------------------------------------------------------------------------
 
 
-def build_flow_command(flow_spec: FlowSpec, ctx: ServiceContext) -> click.Command:
+def build_flow_command(
+    flow_spec: FlowSpec,
+    ctx: ServiceContext,
+    service_spec: dict | None = None,
+) -> click.Command:
     """Build a Click command from a FlowSpec for command orchestration.
 
     Flow params are converted to Click options using the same
@@ -636,6 +640,8 @@ def build_flow_command(flow_spec: FlowSpec, ctx: ServiceContext) -> click.Comman
     Args:
         flow_spec: FlowSpec dataclass from :mod:`cliyard.engine.flow`.
         ctx: ServiceContext carrying base_url, prefix, and auth config.
+        service_spec: Full loaded service spec (for resource/method
+            lookup in ``use:`` steps). Defaults to an empty dict.
 
     Returns:
         ``click.Command`` for the flow orchestration.
@@ -667,11 +673,7 @@ def build_flow_command(flow_spec: FlowSpec, ctx: ServiceContext) -> click.Comman
         try:
             from cliyard.engine.orchestrator import run_flow
 
-            run_flow(flow_spec, kwargs, ctx)
-        except ImportError as e:
-            console.print(
-                f"[red]Error:[/red] Flow orchestrator not implemented yet: {e}"
-            )
+            run_flow(flow_spec, kwargs, ctx, service_spec or {})
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
         except Exception as e:
