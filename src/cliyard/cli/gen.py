@@ -260,14 +260,22 @@ The function receives the top-level ``cli`` (``click.Group``) and ``ctx``
 
 ## Flow orchestration（命令编排）
 
-对于涉及多个 API 调用的业务流程，可以通过 ``_flows.yaml`` 定义编排流水线，
-将已有命令组合为自动化流程。创建 ``src/{pkg_name}/specs/_flows.yaml``：
+对于涉及多个 API 调用的业务流程，可以通过 ``_flows.yaml`` 定义编排流水线。
+编排定义分为两层：
+
+* **注册索引** ``flows/_flows.yaml`` — 定义命令名、参数、引用步骤文件
+* **步骤文件** ``flows/_flow_<name>.yaml`` — 存放具体步骤逻辑
+
+### 快速开始
+
+创建 ``src/{pkg_name}/specs/flows/_flows.yaml``：
 
 ```yaml
 flows:
   add_user:
     description: 新增用户流程
     command: add-user
+    steps: _flow_add_user.yaml       # 引用步骤文件
     params:
       query:
         - name: name
@@ -277,35 +285,34 @@ flows:
         - name: phone
           type: string
           description: 手机号
-    steps:
-      - id: check_user
-        description: 查询用户是否存在
-        use: user.list
-        params:
-          query:
-            name: '{{ flow.name }}'
-        extract:
-          exists: $.users | length
-      - id: decision
-        on_result:
-          - if: '{{ step.check_user.exists > 0 }}'
-            then:
-              - type: echo
-                message: "用户 {{ flow.name }} 已存在"
-              - action: return
-          - else:
-            steps:
-              - id: create_user
-                use: user.create
-                params:
-                  body:
-                    name: '{{ flow.name }}'
-                    phone: '{{ flow.phone | default("") }}'
-              - id: verify_user
-                use: user.list
-                params:
-                  query:
-                    name: '{{ flow.name }}'
+```
+
+再创建 ``src/{pkg_name}/specs/flows/_flow_add_user.yaml``：
+
+```yaml
+steps:
+  - id: check_user
+    description: 查询用户是否存在
+    use: user.list
+    params:
+      name: '{{ flow.name }}'
+    extract:
+      exists: $.users | length
+
+  - id: decision
+    on_result:
+      - if: '{{ step.check_user.exists > 0 }}'
+        then:
+          - type: echo
+            message: "用户 {{ flow.name }} 已存在"
+          - action: return
+      - else:
+          steps:
+            - id: create_user
+              use: user.create
+              params:
+                name: '{{ flow.name }}'
+                phone: '{{ flow.phone | default("") }}'
 ```
 
 使用方式：
@@ -315,7 +322,26 @@ flows:
 {CLI_NAME} flow-run add-user --name 张三 --phone 13800138000
 ```
 
-Flow 会在 ``create_cli()`` 时自动加载，注册在 ``flow-run`` 子命令下。
+也可将所有步骤直接写在 ``_flows.yaml`` 的 ``steps:`` 字段中（适用于简单流程）。
+
+### 步骤引用（include）
+
+步骤列表支持 Ansible-playbook 风格的 ``include:``，可组合多个文件：
+
+```yaml
+# flows/_flows.yaml
+flows:
+  deploy:
+    command: deploy
+    steps: _flow_deploy.yaml
+
+# flows/_flow_deploy.yaml
+steps:
+  - include: _flow_common_check.yaml    # 引入通用检查步骤
+  - id: do_deploy
+    use: app.deploy
+  - include: _flow_common_verify.yaml   # 引入通用验证步骤
+```
 
 ### 核心概念
 
@@ -339,9 +365,9 @@ on_result:
         message: "条件满足"
       - action: return      # 正常退出
   - else:
-    steps:
-      - id: do_something
-        use: resource.method
+      steps:
+        - id: do_something
+          use: resource.method
 ```
 
 内置动作：``return``（退出）、``abort``（中止）、``warn``（警告）、``skip``（跳过）。
@@ -408,30 +434,14 @@ def send_notification(params, context):
 ### 钩子（Hook）
 
 ```yaml
+# flows/_flows.yaml
 flows:
   deploy_app:
     hooks:
       on_start: [validate_env]       # 流程启动时
       on_end: [notify_result]         # 流程完成时
       on_failure: [notify_failure]    # 流程失败时
-    steps:
-      - id: deploy
-        use: resource.method
-        hooks:
-          on_step_start: [log_step]   # 每步开始时
-```
-
-### 装饰器一览
-
-| 装饰器 | 用途 |
-|--------|------|
-| ``@register_step_type("name")`` | **Flow 步骤类型**（``_flows.yaml`` 中 ``type: plugin:xxx``） |
-| ``@register_auth_step("name")`` | 自定义认证步骤 |
-| ``@register_field_type("name")`` | 自定义字段验证器 |
-| ``@register_hook("name")`` | 请求前后钩子 |
-| ``@register_method("name")`` | 多步骤业务方法 |
-| ``@register_command("name")`` | 顶层 Click 命令 |
-| ``@register_field_resolver("name")`` | 动态字段值解析器 |
+    steps: _flow_deploy.yaml
 
 ## Multiple environments
 
