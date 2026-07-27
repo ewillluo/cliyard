@@ -168,6 +168,55 @@ class TestCreateRequest:
         assert req.body == {"name": "minimal-repo", "description": "", "visibility": "private"}
 
 
+    def test_bind_and_assemble_with_multiple_body_param(self):
+        """multiple:true body param renders as JSON array, not Python repr."""
+        spec = {
+            "http": {
+                "method": "POST",
+                "path": "dc/collector/config:batchDelete",
+            },
+            "params": {
+                "body": [
+                    {"name": "id", "type": "string", "required": True, "multiple": True},
+                ],
+            },
+            "request_body": {
+                "ids": '{{ id | tojson }}',
+            },
+        }
+
+        validated = bind_and_validate({"id": ("3", "4")}, spec)
+        req = assemble_request(
+            spec,
+            validated.body | validated.path | validated.query,
+            base_url="https://api.example.com",
+            prefix="/api/v1",
+        )
+
+        assert req.body == {"ids": ["3", "4"]}
+
+    def test_template_render_list_tuple_variable(self):
+        """Template with {{ var }} for list/tuple produces Python list, not string."""
+        from cliyard.engine.assembler import _render_value
+
+        result = _render_value("{{ id }}", {"id": ("3", "4")})
+        assert result == ["3", "4"]  # parsed from JSON string back to list
+
+    def test_template_render_list_tuple_with_tojson(self):
+        """Template with {{ var | tojson }} for list/tuple still works correctly."""
+        from cliyard.engine.assembler import _render_value
+
+        result = _render_value("{{ id | tojson }}", {"id": ("3", "4")})
+        assert result == ["3", "4"]
+
+    def test_template_render_single_value_unchanged(self):
+        """Plain string variable template rendering is unaffected."""
+        from cliyard.engine.assembler import _render_value
+
+        result = _render_value("{{ name }}", {"name": "hello"})
+        assert result == "hello"
+
+
 # ===========================================================================
 # 3. test_auth_injection — env step → inject step adds header to http client
 # ===========================================================================

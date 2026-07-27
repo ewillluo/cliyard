@@ -54,11 +54,14 @@ def _render_value(value: Any, variables: dict[str, str]) -> Any:
             return value
         try:
             rendered = Template(value).render(**variables)
-            # When |tojson is used in the template, the rendered output is
-            # valid JSON — parse it back to native types so that int/bool
-            # fields are not sent as strings.  Without |tojson (plain
-            # {{ var }}), leave the rendered string as-is.
-            if "tojson" in value:
+            # When the rendering context contains list/tuple values, the
+            # finalize hook in template.py serializes them as JSON strings.
+            # Parse the rendered output back to native Python types so that
+            # {{ id }} with id=("3","4") produces ["3","4"] (list) instead
+            # of the JSON string "[\"3\",\"4\"]".
+            if "tojson" in value or any(
+                isinstance(v, (list, tuple)) for v in variables.values()
+            ):
                 try:
                     return json.loads(rendered)
                 except (json.JSONDecodeError, ValueError):
