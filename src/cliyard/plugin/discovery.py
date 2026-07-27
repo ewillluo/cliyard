@@ -1,7 +1,7 @@
 """Plugin discovery: entry points + directory scanning.
 
 Discovers plugins from three sources:
-1. Python entry points (``cliyard.auth``, ``cliyard.types``, ``cliyard.hooks``)
+1. Python entry points (``cliyard.auth``, ``cliyard.types``, ``cliyard.hooks``, ``cliyard.steps``)
 2. Spec-local plugin directory: ``{spec_dir}/plugins/*.py``
 3. Global plugin directory: ``~/.cliyard/plugins/*.py``
 """
@@ -22,7 +22,7 @@ _scanned_dirs: set[str] = set()
 def discover_plugins(spec_dir: str | None = None) -> None:
     """Discover plugins from all sources.
 
-    1. Entry points: ``cliyard.auth``, ``cliyard.types``, ``cliyard.hooks``
+    1. Entry points: ``cliyard.auth``, ``cliyard.types``, ``cliyard.hooks``, ``cliyard.steps``
     2. Spec directory: ``{spec_dir}/plugins/*.py``
     3. Global dir: ``~/.cliyard/plugins/*.py``
 
@@ -65,6 +65,7 @@ def _discover_entry_points() -> None:
         ``cliyard.auth``  → PluginRegistry._auth_steps
         ``cliyard.types`` → PluginRegistry._field_types
         ``cliyard.hooks`` → PluginRegistry._hooks
+        ``cliyard.steps`` → PluginRegistry._step_types
     """
     try:
         from importlib.metadata import entry_points
@@ -75,6 +76,7 @@ def _discover_entry_points() -> None:
         ("cliyard.auth", "_auth_steps"),
         ("cliyard.types", "_field_types"),
         ("cliyard.hooks", "_hooks"),
+        ("cliyard.steps", "_step_types"),
     ]:
         try:
             eps = entry_points(group=group_name)

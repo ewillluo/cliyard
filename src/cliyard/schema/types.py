@@ -235,3 +235,108 @@ class ResourceSpec(TypedDict):
     path: str
     methods: dict[str, MethodSpec]
     auth: AuthChain
+
+
+# ---------------------------------------------------------------------------
+# Flow: _flows.yaml
+# ---------------------------------------------------------------------------
+
+
+class ForEachConfigSpec(TypedDict, total=False):
+    """ForEach iteration configuration.
+
+    Attributes:
+        items: Jinja2 expression evaluating to an iterable.
+        as_name: Variable name for each item inside the loop body.
+        steps: Steps to execute per iteration.
+    """
+
+    items: str
+    as_name: str
+    steps: list[FlowStepSpec]
+
+
+class RetryConfigSpec(TypedDict, total=False):
+    """Retry configuration for a step.
+
+    Attributes:
+        max_attempts: Maximum number of attempts (default: 3).
+        delay: Delay between retries in seconds (default: 1).
+        backoff: Multiplier applied to delay after each attempt.
+        on_exhausted: Action to take when all retries are exhausted.
+    """
+
+    max_attempts: int
+    delay: int
+    backoff: int
+    on_exhausted: dict[str, Any]
+
+
+class UntilConfigSpec(TypedDict, total=False):
+    """Polling / wait-until configuration.
+
+    Attributes:
+        max_iterations: Maximum polling iterations (default: 30).
+        interval: Seconds between iterations (default: 5).
+        condition: Jinja2 expression that must evaluate to truthy to stop.
+        timeout_action: Action on timeout — "abort" or "continue".
+        timeout_message: Message to display on timeout.
+    """
+
+    max_iterations: int
+    interval: int
+    condition: str
+    timeout_action: str
+    timeout_message: str
+
+
+class FlowStepSpec(TypedDict, total=False):
+    """A single step inside a Flow.
+
+    Attributes:
+        id: Unique step identifier within the flow.
+        description: Human-readable step description.
+        use: Target command/flow to delegate to (for type=use).
+        params: Parameters to pass to the target.
+        extract: JSONPath extraction map (field_name → jsonpath).
+        on_result: Conditional branching based on extraction results.
+        on_failure: Fallback action when this step fails.
+        assert_: Jinja2 expression that must be truthy for the step to succeed.
+        for_each: Iteration config (mutually exclusive with until).
+        retry: Retry configuration.
+        until: Polling/wait-until configuration (mutually exclusive with for_each).
+        hooks: Per-step hook overrides.
+        type: Step type override (normally inferred from config).
+    """
+
+    id: str
+    description: str
+    use: str
+    params: dict[str, Any]
+    extract: dict[str, str]
+    on_result: list[dict[str, Any]]
+    on_failure: dict[str, Any]
+    assert_: str
+    for_each: ForEachConfigSpec
+    retry: RetryConfigSpec
+    until: UntilConfigSpec
+    hooks: dict[str, dict[str, Any]]
+    type: str
+
+
+class FlowSpecSpec(TypedDict, total=False):
+    """Top-level Flow specification.
+
+    Attributes:
+        command: CLI command name (e.g. "deploy").
+        description: Human-readable description.
+        params: Parameter definitions (name → config dict).
+        steps: Ordered list of FlowStepSpec.
+        hooks: Lifecycle hooks (hook_type → config dict).
+    """
+
+    command: str
+    description: str
+    params: dict[str, Any]
+    steps: list[FlowStepSpec]
+    hooks: dict[str, dict[str, Any]]

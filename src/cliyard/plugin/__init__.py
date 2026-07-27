@@ -7,6 +7,7 @@ Extension points:
 - methods: Custom business logic methods (multi-step API calls)
 - commands: Custom top-level Click commands
 - field_resolvers: Dynamic field value resolvers (e.g. get latest version)
+- steps: Custom step types for flow orchestration
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class PluginRegistry:
     _methods: dict[str, Callable] = {}
     _commands: dict[str, Callable] = {}
     _field_resolvers: dict[str, Callable] = {}
+    _step_types: dict[str, Callable] = {}
     _loaded: bool = False
 
     @classmethod
@@ -86,6 +88,15 @@ class PluginRegistry:
         cls._commands[name] = command_fn
 
     @classmethod
+    def register_step_type(cls, name: str, step_fn: Callable) -> None:
+        """Register a custom step type for flow orchestration.
+
+        The function receives ``(params: dict, context: Any) -> dict`` and
+        returns a dict result.
+        """
+        cls._step_types[name] = step_fn
+
+    @classmethod
     def get_auth_step(cls, name: str) -> type | None:
         return cls._auth_steps.get(name)
 
@@ -110,6 +121,10 @@ class PluginRegistry:
         return cls._commands.get(name)
 
     @classmethod
+    def get_step_type(cls, name: str) -> Callable | None:
+        return cls._step_types.get(name)
+
+    @classmethod
     def get_all_commands(cls) -> dict[str, Callable]:
         return dict(cls._commands)
 
@@ -121,6 +136,7 @@ class PluginRegistry:
         cls._methods.clear()
         cls._commands.clear()
         cls._field_resolvers.clear()
+        cls._step_types.clear()
         cls._loaded = False
 
 
@@ -191,5 +207,25 @@ def register_field_resolver(name: str):
     """
     def decorator(fn):
         PluginRegistry.register_field_resolver(name, fn)
+        return fn
+    return decorator
+
+
+def register_step_type(name: str):
+    """Decorator that registers a function as a step type for flow orchestration.
+
+    The function receives ``(params: dict, context: Any) -> dict`` and
+    returns a dict result.
+
+    Usage::
+
+        @register_step_type("http_call")
+        def http_call(params, context):
+            client = context["http_client"]
+            resp = client.request("POST", "/api/step", json=params)
+            return resp.json()
+    """
+    def decorator(fn):
+        PluginRegistry.register_step_type(name, fn)
         return fn
     return decorator
