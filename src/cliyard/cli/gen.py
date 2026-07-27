@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"{pkg_name}" = ["specs/*.yaml", "specs/plugins/*.py", "specs/plugins/spl_parser/*.py"]
+"{pkg_name}" = ["specs/*.yaml", "specs/resources/*.yaml", "specs/flows/*.yaml", "specs/plugins/*.py", "specs/plugins/spl_parser/*.py"]
 """
 
 _MAIN_PY_TEMPLATE = """\
@@ -90,9 +90,26 @@ pip install -e .
 {CLI_NAME} <resource> list --format json
 ```
 
+## Directory structure
+
+```
+src/{pkg_name}/specs/
+├── _auth.yaml              # Service config (server, auth)
+├── _groups.yaml            # (optional) Group definitions
+├── _flows.yaml             # (optional) Flow orchestration index
+├── resources/              # Resource YAML files
+│   ├── repos.yaml
+│   └── ...
+├── flows/                  # (optional) Flow step definitions
+│   ├── _flow_create_repo.yaml
+│   └── ...
+└── plugins/                # Python plugins
+    └── *.py
+```
+
 ## Adding new resources
 
-1. Create a YAML file in `src/{pkg_name}/specs/` (copy an existing one as reference):
+1. Create a YAML file in `src/{pkg_name}/specs/resources/` (or directly in `specs/`):
 
 ```yaml
 description: My resource
