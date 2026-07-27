@@ -154,12 +154,15 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
 def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
     """Load flow definitions from a spec directory.
 
-    Reads ``_flows.yaml`` and, for each flow, loads steps from the
-    file referenced by the ``from:`` field.  Returns an empty list
-    if ``_flows.yaml`` does not exist.
+    ``_flows.yaml`` contains a ``flows:`` key.  Each flow's ``steps:`` can be:
 
-    A flow is valid only when it has both a ``command`` field
-    (metadata) and ``steps`` (from the external file).
+    * A **list** of step dicts (inline).
+    * A **string** file path (load steps from that file).
+
+    Steps lists also support ``include: <path>`` entries, which resolve to the
+    steps in the referenced file (Ansible-playbook style).
+
+    Returns an empty list if ``_flows.yaml`` does not exist.
     """
     spec_dir = Path(spec_dir)
     flows_path = spec_dir / "_flows.yaml"
@@ -177,19 +180,8 @@ def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
         if "command" not in fdict:
             continue
 
-        # Load steps from the referenced file
-        steps: list = []
-        steps_file = fdict.get("from")
-        if steps_file:
-            steps_path = (spec_dir / steps_file).resolve()
-            if steps_path.is_file():
-                steps_raw = _load_yaml(steps_path)
-                steps_raw_list = steps_raw.get("steps", []) if isinstance(steps_raw, dict) else []
-                steps = [_parse_flow_step(s, steps_path) for s in steps_raw_list]
-        else:
-            # Inline steps (backward compatibility)
-            steps_raw_list = fdict.get("steps", [])
-            steps = [_parse_flow_step(s, flows_path) for s in steps_raw_list]
+        raw_steps = fdict.get("steps")
+        steps = _resolve_steps(raw_steps, spec_dir, flows_path)
 
         if not steps:
             continue
@@ -203,6 +195,47 @@ def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
         ))
 
     return flows
+
+
+def _resolve_steps(
+    raw_steps: Any,
+    spec_dir: Path,
+    source_path: Path,
+) -> list[FlowStep]:
+    """Resolve a ``steps:`` value into a flat list of FlowStep.
+
+    Handles three forms:
+
+    * **String** — ``steps: _flow_foo.yaml``: load steps from that file.
+    * **List** — ``steps: [{id: …}, …]``: parse each item; if an item has an
+      ``include:`` key, recursively load steps from the referenced file.
+    * **None/empty** — returns ``[]``.
+    """
+    if not raw_steps:
+        return []
+
+    # String form: steps: _flow_foo.yaml
+    if isinstance(raw_steps, str):
+        steps_path = (spec_dir / raw_steps).resolve()
+        if not steps_path.is_file():
+            return []
+        content = _load_yaml(steps_path)
+        inner = content if isinstance(content, list) else content.get("steps", [])
+        return _resolve_steps(inner, spec_dir, steps_path)
+
+    # List form
+    result: list[FlowStep] = []
+    for item in raw_steps:
+        if not isinstance(item, dict):
+            continue
+        # include: <path> — pull in steps from another file
+        include_path = item.get("include")
+        if include_path:
+            included = _resolve_steps(include_path, spec_dir, source_path)
+            result.extend(included)
+        else:
+            result.append(_parse_flow_step(item, source_path))
+    return result
 
 
 # ---------------------------------------------------------------------------
