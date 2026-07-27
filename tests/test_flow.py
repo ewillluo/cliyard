@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import click.testing
 import pytest
+import yaml
 
 from cliyard.engine.builder import ServiceContext, build_flow_command
 from cliyard.engine.errors import ApiError, CliyError
@@ -29,10 +30,12 @@ from cliyard.engine.orchestrator import (
     execute_use_step,
     resolve_template,
     _execute_for_each,
+    _execute_plugin_step,
     _execute_step,
     _execute_until,
     _execute_with_retry,
     _evaluate_expression,
+    _lookup_resource_method,
     handle_on_result,
 )
 from cliyard.engine.template import Template
@@ -1078,3 +1081,177 @@ class TestE2EHooksFlow:
 
         assert result.exit_code == 0
         assert "Flow completed" in result.output
+
+
+# ===========================================================================
+# Edge case tests (-k edge)
+# ===========================================================================
+
+
+class TestEdgeCases:
+    """Edge case tests for flow orchestration covering error paths,
+    boundary conditions, and failure modes (-k edge)."""
+
+    # -----------------------------------------------------------------------
+    # Empty state edge cases
+    # -----------------------------------------------------------------------
+
+    def test_empty_steps_list(self, http_mock):
+        """Flow with ``steps: []`` completes normally with no errors."""
+        flow_spec = FlowSpec(command="empty", steps=[])
+        cmd = build_flow_command(
+            flow_spec, ServiceContext(base_url="http://test.local"), {}
+        )
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, [])
+        assert result.exit_code == 0
+        assert "Flow completed" in result.output
+
+    def test_for_each_empty_items(self):
+        """for_each with items resolving to empty list — no sub-steps execute."""
+        ctx = _make_flow_context(
+            _make_service_spec([_user_resource()]),
+            step_state={"item_list": []},
+        )
+        sub_step = FlowStep(
+            id="process_item",
+            use="user.create",
+            params={"body": {"name": "{{ row.name }}"}},
+        )
+        step = FlowStep(
+            id="foreach_step",
+            for_each=ForEachConfig(
+                items="{{ step.item_list }}",
+                as_name="row",
+                steps=[sub_step],
+            ),
+        )
+        results = _execute_for_each(step, ctx)
+        assert results == []
+
+    def test_until_condition_immediately_met(self):
+        """until step where condition is already true on first call —
+        only 1 iteration, no polling delay.
+        """
+        ctx = _make_flow_context(_make_service_spec([]))
+        step = FlowStep(
+            id="poll_step",
+            use="user.list",
+            params={},
+            until=UntilConfig(
+                condition="{{ step.poll_step.status == 'done' }}",
+                max_iterations=5,
+                interval=0,
+            ),
+        )
+
+        call_count = 0
+
+        def mock_exec(s, rp, c):
+            nonlocal call_count
+            call_count += 1
+            return {"status": "done"}
+
+        with patch(
+            "cliyard.engine.orchestrator.execute_use_step",
+            side_effect=mock_exec,
+        ):
+            result = _execute_until(step, ctx, {})
+
+        assert result == {"status": "done"}
+        assert call_count == 1, "Expected only 1 iteration for immediately-satisfied condition"
+
+    def test_retry_first_attempt_succeeds(self):
+        """Retry step succeeds on first attempt — no retry delay or extra calls."""
+        ctx = _make_flow_context(_make_service_spec([]))
+        step = FlowStep(
+            id="retry_step",
+            use="user.list",
+            params={},
+            retry=RetryConfig(max_attempts=3, delay=0),
+        )
+
+        call_count = 0
+
+        def mock_exec(s, rp, c):
+            nonlocal call_count
+            call_count += 1
+            return {"ok": True}
+
+        with patch(
+            "cliyard.engine.orchestrator.execute_use_step",
+            side_effect=mock_exec,
+        ):
+            result = _execute_with_retry(step, ctx, {})
+
+        assert result == {"ok": True}
+        assert call_count == 1, "Expected only 1 attempt on immediate success"
+
+    # -----------------------------------------------------------------------
+    # Error handling edge cases
+    # -----------------------------------------------------------------------
+
+    def test_unknown_resource_method(self, http_mock):
+        """use: ``nonexistent.list`` prints clear error identifying the resource."""
+        flow_spec = FlowSpec(
+            command="test",
+            steps=[
+                FlowStep(id="bad_step", use="nonexistent.list", params={}),
+            ],
+        )
+        cmd = build_flow_command(
+            flow_spec,
+            ServiceContext(base_url="http://test.local"),
+            _E2E_SERVICE_SPEC,
+        )
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, [])
+        assert result.exit_code == 0
+        assert "nonexistent" in result.output.lower()
+
+    def test_unknown_step_type(self):
+        """type: ``plugin:nonexistent_plugin`` raises CliyError identifying plugin."""
+        ctx = _make_flow_context(_make_service_spec([]))
+        step = FlowStep(
+            id="bad_plugin",
+            type="plugin:nonexistent_plugin",
+            params={},
+        )
+        with pytest.raises(CliyError, match="nonexistent_plugin"):
+            _execute_plugin_step(step, ctx)
+
+    def test_invalid_use_format(self):
+        """use: ``justaname`` (no dot separator) raises ValueError."""
+        with pytest.raises(ValueError, match="resource.method"):
+            _lookup_resource_method("justaname", {"resources": []})
+
+    def test_template_reference_unknown_step(self):
+        """Template ``{{ step.nonexistent.field }}`` resolves to empty string."""
+        result = resolve_template("{{ step.nonexistent.field }}", {"step": {}})
+        assert result == "", "Unknown step.field should render as empty string"
+
+    # -----------------------------------------------------------------------
+    # Condition expression edge cases
+    # -----------------------------------------------------------------------
+
+    def test_condition_syntax_error(self):
+        """Invalid Jinja2 syntax in condition returns ``False`` (safe default)."""
+        assert evaluate_condition("{{ invalid syntax !!! }}", {}) is False
+
+    # -----------------------------------------------------------------------
+    # Flow-level loading edge cases
+    # -----------------------------------------------------------------------
+
+    def test_load_flows_invalid_yaml(self, tmp_path):
+        """Invalid YAML in ``_flows.yaml`` raises ``yaml.YAMLError``."""
+        flows_yaml = tmp_path / "_flows.yaml"
+        flows_yaml.write_text("{invalid: yaml: content: [}")
+        with pytest.raises(yaml.YAMLError):
+            load_flows(tmp_path)
+
+    def test_load_flows_empty_flows_key(self, tmp_path):
+        """``_flows.yaml`` with ``flows: {}`` returns empty list."""
+        flows_yaml = tmp_path / "_flows.yaml"
+        flows_yaml.write_text("flows:")
+        result = load_flows(tmp_path)
+        assert result == []
