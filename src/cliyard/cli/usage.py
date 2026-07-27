@@ -164,11 +164,10 @@ def _generate_docs(spec_dir: str) -> str:
 
 
 @click.command()
-@click.option(
-    "--spec-dir",
-    default=None,
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    help="Spec directory (default: ./specs/)",
+@click.argument(
+    "spec_dir",
+    required=False,
+    type=click.Path(exists=False, file_okay=False, resolve_path=True),
 )
 @click.option(
     "-o",
@@ -182,19 +181,21 @@ def usage(spec_dir: str | None, output: str | None) -> None:
 
     Scans a cliyard spec directory and produces a structured reference
     of all resources, methods, parameters, and flow orchestrations.
+
+    If SPEC_DIR is omitted, auto-discovers by looking for ``_auth.yaml``
+    in the current directory or ``specs/`` subdirectory.
     """
     # Resolve spec directory
     if spec_dir:
         spec_path = Path(spec_dir).resolve()
     else:
-        # Walk up from CWD looking for _auth.yaml or specs/_auth.yaml
         cwd = Path.cwd().resolve()
         for candidate in [cwd, cwd / "specs"]:
             if (candidate / "_auth.yaml").is_file():
                 spec_path = candidate
                 break
         else:
-            click.echo("Error: no _auth.yaml found. Use --spec-dir to specify.", err=True)
+            click.echo("Error: no _auth.yaml found. Specify directory or run from a project root.", err=True)
             raise SystemExit(1)
 
     click.echo(f"Scanning {spec_path}...", err=True)
