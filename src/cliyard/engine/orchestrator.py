@@ -16,8 +16,12 @@ Pipeline per step (matching :func:`~cliyard.engine.builder._make_callback`):
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from jinja2 import ChainableUndefined
+from jinja2.sandbox import SandboxedEnvironment
 
 from cliyard.engine.assembler import assemble_request
 from cliyard.engine.binder import bind_and_validate
@@ -50,6 +54,8 @@ class FlowContext:
     service_spec: dict = field(default_factory=dict)
     base_url: str = ""
     prefix: str = ""
+    _flow_aborted: bool = False
+    _flow_skipped: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +92,34 @@ def resolve_template(obj: Any, context: dict) -> Any:
     elif isinstance(obj, list):
         return [resolve_template(item, context) for item in obj]
     return obj
+
+
+def _evaluate_expression(expr: str, context: dict) -> Any:
+    """Evaluate a Jinja2 expression and return the actual Python value.
+
+    Unlike :func:`resolve_template` which renders templates to strings,
+    this function evaluates an expression and returns native Python types
+    (lists, dicts, scalars, etc.).
+
+    The expression may be wrapped in ``{{ }}`` markers or bare::
+
+        _evaluate_expression("step.users", ctx)       → [{"name": "alice"}, ...]
+        _evaluate_expression("{{ step.users }}", ctx)  → same result
+
+    Args:
+        expr: Jinja2 expression string.
+        context: Template variables dict.
+
+    Returns:
+        The evaluated Python value.
+    """
+    expr = expr.strip()
+    if expr.startswith("{{") and expr.endswith("}}"):
+        expr = expr[2:-2].strip()
+
+    env = SandboxedEnvironment(undefined=ChainableUndefined)
+    compiled = env.compile_expression(expr)
+    return compiled(**context)
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +314,513 @@ def execute_use_step(
 
 
 # ---------------------------------------------------------------------------
+# Conditional branching — on_result (if/else)
+# ---------------------------------------------------------------------------
+
+
+def evaluate_condition(condition_str: str, context: dict) -> bool:
+    """Evaluate a Jinja2 condition string to a boolean.
+
+    Handles conditions like ``{{ step.X.count > 0 }}``, ``{{ step.X }}``,
+    ``{{ step.X is not none }}``, and ``{{ step.X | length }}``.
+
+    The condition string may or may not include ``{{ }}`` delimiters. If
+    the rendered result is "True"/"true"/"1" the function returns ``True``.
+    "False"/"false"/"0"/""/``None`` all return ``False``. On any Jinja2
+    error (missing variable, syntax) it returns ``False`` (safe default).
+
+    Args:
+        condition_str: Jinja2 expression (optionally wrapped in ``{{ }}``).
+        context: Template variable dict (``{"flow": ..., "step": ...}``).
+
+    Returns:
+        ``True`` if the condition evaluates truthy, ``False`` otherwise.
+    """
+    import re
+
+    cond = condition_str.strip()
+
+    # Strip surrounding {{ }} if present
+    # Handle: {{ expr }}, {{- expr -}}, etc.
+    cond = re.sub(r"^\{\{[\s\-]*", "", cond)
+    cond = re.sub(r"[\s\-]*\}\}$", "", cond)
+    cond = cond.strip()
+
+    if not cond:
+        return False
+
+    # Re-wrap as a full Jinja2 expression and render
+    try:
+        rendered = Template("{{ " + cond + " }}").render(**context)
+    except Exception:
+        return False
+
+    rendered = rendered.strip()
+
+    # Boolean conversion
+    if rendered in ("True", "true", "1"):
+        return True
+    if rendered in ("False", "false", "0", "", "None", "none", "null"):
+        return False
+
+    # Truthy: non-empty string (e.g. a non-empty list/object repr)
+    return bool(rendered)
+
+
+def execute_echo_action(message: str, context: FlowContext) -> None:
+    """Print a formatted message via the flow console.
+
+    Supports ``{{ flow.xxx }}`` and ``{{ step.xxx }}`` template resolution
+    in the message string.
+
+    Args:
+        message: Message to print (with optional Jinja2 templates).
+        context: Current flow execution context.
+    """
+    template_ctx = _build_template_context(context)
+    rendered = resolve_template(message, template_ctx)
+    context.console.print(f"[green]{rendered}[/green]")
+
+
+def execute_action(
+    action_type: str,
+    action_config: dict,
+    context: FlowContext,
+) -> None:
+    """Execute a built-in control action.
+
+    Supported actions:
+
+    * ``return`` — sets ``_flow_aborted`` flag so ``run_flow()`` stops
+      cleanly (no error).
+    * ``abort`` — raises :class:`~cliyard.engine.errors.CliyError` with
+      the configured message.
+    * ``warn`` — prints a yellow warning and continues execution.
+    * ``skip`` — sets ``_flow_skipped`` flag so ``run_flow()`` skips
+      remaining steps.
+
+    Args:
+        action_type: One of ``"return"``, ``"abort"``, ``"warn"``, ``"skip"``.
+        action_config: Dict with optional ``message`` key.
+        context: Current flow execution context.
+
+    Raises:
+        CliyError: When action is ``abort``.
+        ValueError: When an unknown action type is encountered.
+    """
+    action_map: dict[str, str] = {
+        "return": "return",
+        "abort": "abort",
+        "warn": "warn",
+        "skip": "skip",
+    }
+
+    normalized = action_map.get(action_type)
+    if normalized is None:
+        raise ValueError(f"Unknown action type: {action_type!r}")
+
+    if normalized == "return":
+        context._flow_aborted = True
+
+    elif normalized == "abort":
+        message = action_config.get("message", "Flow aborted by action")
+        # Resolve templates in the abort message
+        template_ctx = _build_template_context(context)
+        rendered_msg = resolve_template(message, template_ctx)
+        raise CliyError(rendered_msg)
+
+    elif normalized == "warn":
+        message = action_config.get("message", "")
+        if message:
+            template_ctx = _build_template_context(context)
+            rendered_msg = resolve_template(message, template_ctx)
+            context.console.print(f"[yellow]⚠ {rendered_msg}[/yellow]")
+
+    elif normalized == "skip":
+        context._flow_skipped = True
+
+
+def _normalize_on_result_block(
+    block: list | dict | Any,
+) -> list[dict]:
+    """Normalize a ``then`` / ``else`` block to a list of action dicts.
+
+    Handles two YAML structures:
+
+    * **List form** (``then``)::
+
+          - type: echo
+            message: "hello"
+          - action: return
+
+    * **Dict with steps** (``else``)::
+
+          steps:
+            - id: create_user
+              use: user.create
+              ...
+
+    Args:
+        block: Raw YAML block value.
+
+    Returns:
+        List of action dicts.
+    """
+    if isinstance(block, list):
+        return block
+    if isinstance(block, dict):
+        steps = block.get("steps", [])
+        if isinstance(steps, list):
+            return steps
+    return []
+
+
+def _execute_action_item(
+    item: dict,
+    context: FlowContext,
+) -> None:
+    """Execute a single action item from a ``then`` / ``else`` block.
+
+    Three item types:
+
+    * ``type: echo`` + ``message`` — prints a message.
+    * ``action: return/abort/warn/skip`` + optional ``message`` — control.
+    * ``id`` + ``use`` + ``params`` — sub-step (only basic execution).
+
+    Args:
+        item: Action item dict.
+        context: Current flow execution context.
+    """
+    # Echo action
+    if item.get("type") == "echo":
+        message = item.get("message", "")
+        execute_echo_action(message, context)
+        return
+
+    # Control action
+    action_val = item.get("action")
+    if action_val:
+        execute_action(action_val, item, context)
+        return
+
+    # Sub-step (has an "id" + "use" + "params")
+    step_id = item.get("id")
+    if step_id and item.get("use"):
+        template_ctx = _build_template_context(context)
+        resolved = resolve_template(item.get("params", {}), template_ctx)
+
+        try:
+            result = execute_use_step(item, resolved, context)  # type: ignore[arg-type]
+            context.step_state[step_id] = result
+        except CliyError as e:
+            _msg = str(e).replace("[", "[[]").replace("]", "[]]")
+            context.console.print(f"[red]✗ Sub-step {step_id!r} failed:[/red] {_msg}")
+        except Exception as e:
+            _msg = str(e).replace("[", "[[]").replace("]", "[]]")
+            context.console.print(f"[red]✗ Sub-step {step_id!r} failed:[/red] {_msg}")
+
+
+def handle_on_result(
+    on_result_list: list[dict],
+    context: FlowContext,
+    step_id: str,
+) -> None:
+    """Evaluate conditional branching after a step completes.
+
+    Iterates over the ``on_result`` list. Each entry is either:
+
+    * An **if/then** (with optional ``else``)::
+
+          if: '{{ step.X.count > 0 }}'
+          then: [...]
+          else: [...]        # optional
+
+    * An **else-only** fallback (no ``if``)::
+
+          else:
+            steps: [...]
+
+    If an ``if`` condition evaluates to ``True``, its ``then`` block is
+    executed and iteration stops (no further items in the list are
+    processed — the first matching branch wins).  This gives ``if/elif/else``
+    semantics.
+
+    Args:
+        on_result_list: List of on_result condition dicts.
+        context: Current flow execution context.
+        step_id: ID of the step that just completed.
+    """
+    matched = False
+
+    for item in on_result_list:
+        # Item with "if" + "then" (condition node)
+        if "if" in item:
+            condition = item["if"]
+            template_ctx = _build_template_context(context)
+            if evaluate_condition(condition, template_ctx):
+                matched = True
+                then_block = _normalize_on_result_block(item.get("then", []))
+                for action_item in then_block:
+                    _execute_action_item(action_item, context)
+                    # Stop processing actions if a control action fired
+                    if context._flow_aborted:
+                        return
+                    if context._flow_skipped:
+                        return
+                break  # First matching branch wins
+            else:
+                # Condition false — check for "else" on this same item
+                if "else" in item:
+                    matched = True
+                    else_block = _normalize_on_result_block(item["else"])
+                    for action_item in else_block:
+                        _execute_action_item(action_item, context)
+                        if context._flow_aborted:
+                            return
+                        if context._flow_skipped:
+                            return
+                    break
+
+        # Item with "else" but no "if" — catch-all fallback
+        elif "else" in item:
+            matched = True
+            else_block = _normalize_on_result_block(item["else"])
+            for action_item in else_block:
+                _execute_action_item(action_item, context)
+                if context._flow_aborted:
+                    return
+                if context._flow_skipped:
+                    return
+            break
+
+        # Item with "then" but no "if" — unconditional action
+        elif "then" in item:
+            matched = True
+            then_block = _normalize_on_result_block(item["then"])
+            for action_item in then_block:
+                _execute_action_item(action_item, context)
+                if context._flow_aborted:
+                    return
+                if context._flow_skipped:
+                    return
+            break
+
+    if not matched:
+        # No branch matched — do nothing, flow continues
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Loop mechanisms
+# ---------------------------------------------------------------------------
+
+
+def _execute_for_each(step, context: FlowContext) -> list:
+    """Execute a for_each loop step.
+
+    Iterates over items resolved from the template context, executing
+    sub-steps for each iteration.  The loop variable is accessible as
+    ``{{ <as_name> }}`` (top-level) and ``{{ step.<as_name> }}`` in
+    sub-step templates.
+    """
+    template_ctx = _build_template_context(context)
+
+    items = _evaluate_expression(step.for_each.items, template_ctx)
+
+    if not isinstance(items, (list, tuple)):
+        raise CliyError(
+            f"Step {step.id!r}: for_each.items resolved to "
+            f"{type(items).__name__}, expected a list"
+        )
+
+    row_name = step.for_each.as_name or "row"
+    results: list[dict] = []
+
+    for idx, item in enumerate(items):
+        context.console.print(
+            f"  [cyan]{step.id!r}: iteration {idx + 1}/{len(items)} "
+            f"({row_name}={item!r})[/cyan]"
+        )
+
+        iter_state = dict(context.step_state)
+        iter_state[row_name] = item
+
+        iter_ctx = FlowContext(
+            flow_params=context.flow_params,
+            step_state=iter_state,
+            http_client=context.http_client,
+            console=context.console,
+            service_spec=context.service_spec,
+            base_url=context.base_url,
+            prefix=context.prefix,
+        )
+
+        iter_results: dict[str, Any] = {}
+        for sub_step in step.for_each.steps:
+            sub_ctx = dict(_build_template_context(iter_ctx))
+            sub_ctx[row_name] = item
+
+            sub_resolved = resolve_template(sub_step.params, sub_ctx)
+
+            if sub_step.use:
+                sub_result = execute_use_step(sub_step, sub_resolved, iter_ctx)
+            else:
+                sub_result = sub_resolved
+
+            iter_results[sub_step.id] = sub_result
+            iter_ctx.step_state[sub_step.id] = sub_result
+
+        results.append(iter_results)
+
+    return results
+
+
+def _execute_with_retry(
+    step,
+    context: FlowContext,
+    resolved_params: dict,
+) -> dict:
+    """Execute a step with retry logic.
+
+    Re-attempts on failure with configurable delay and optional exponential
+    backoff.  If ``on_exhausted`` is configured and all attempts fail, the
+    fallback action is executed instead of raising immediately.
+    """
+    max_attempts = step.retry.max_attempts
+    delay = step.retry.delay
+    backoff = step.retry.backoff
+    last_exception: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if step.use:
+                result = execute_use_step(step, resolved_params, context)
+            else:
+                result = resolved_params
+            return result
+        except Exception as e:
+            last_exception = e
+            if attempt < max_attempts:
+                context.console.print(
+                    f"  [yellow]⚠ {step.id!r}: attempt {attempt}/{max_attempts} "
+                    f"failed ({e}). Retrying in {delay}s...[/yellow]"
+                )
+                time.sleep(delay)
+                if backoff:
+                    delay *= backoff
+            else:
+                if step.retry.on_exhausted:
+                    exc = step.retry.on_exhausted
+                    if isinstance(exc, dict) and "use" in exc:
+                        from cliyard.engine.flow import FlowStep
+
+                        fallback_step = FlowStep(
+                            id=f"{step.id}_fallback",
+                            use=exc["use"],
+                            params=exc.get("params", {}),
+                        )
+                        fb_ctx = _build_template_context(context)
+                        fb_resolved = resolve_template(
+                            fallback_step.params, fb_ctx
+                        )
+                        return execute_use_step(
+                            fallback_step, fb_resolved, context
+                        )
+
+                raise CliyError(
+                    f"Step {step.id!r}: all {max_attempts} retries exhausted. "
+                    f"Last error: {last_exception}"
+                ) from last_exception
+
+
+def _execute_until(
+    step,
+    context: FlowContext,
+    resolved_params: dict,
+) -> dict:
+    """Execute a step with until (polling) logic.
+
+    Repeats execution until the condition expression evaluates to a truthy
+    value, or until ``max_iterations`` is reached.  On timeout, the
+    ``timeout_action`` (abort/continue) determines the behaviour.
+    """
+    max_iterations = step.until.max_iterations
+    interval = step.until.interval
+    condition = step.until.condition
+    timeout_action = step.until.timeout_action or "abort"
+    timeout_message = step.until.timeout_message or ""
+
+    last_result: dict = {}
+
+    for iteration in range(1, max_iterations + 1):
+        if step.use:
+            result = execute_use_step(step, resolved_params, context)
+        else:
+            result = resolved_params
+
+        last_result = result
+
+        context.step_state[step.id] = result
+        template_ctx = _build_template_context(context)
+        condition_met = _evaluate_expression(condition, template_ctx)
+
+        if condition_met:
+            context.console.print(
+                f"  [green]✓ {step.id!r}: condition met "
+                f"after {iteration} iteration(s)[/green]"
+            )
+            return result
+
+        context.console.print(
+            f"  [dim]{step.id!r}: iteration {iteration}/{max_iterations} "
+            f"-- condition not yet met, waiting {interval}s...[/dim]"
+        )
+
+        if iteration < max_iterations:
+            time.sleep(interval)
+
+    if timeout_action == "abort":
+        msg = (
+            timeout_message
+            or f"Step {step.id!r}: timeout after {max_iterations} iterations"
+        )
+        raise CliyError(msg)
+
+    msg = (
+        timeout_message
+        or f"Step {step.id!r}: timeout after {max_iterations} iterations "
+        f"(action=continue)"
+    )
+    context.console.print(f"  [yellow]⚠ {msg}[/yellow]")
+    return last_result
+
+
+# ---------------------------------------------------------------------------
+# Step dispatch
+# ---------------------------------------------------------------------------
+
+
+def _execute_step(step, context: FlowContext) -> Any:
+    """Execute a single flow step, dispatching to the right handler.
+
+    Handles for_each, retry, until, use, and plain param steps.
+    """
+    template_ctx = _build_template_context(context)
+    resolved_params = resolve_template(step.params, template_ctx)
+
+    if step.for_each:
+        return _execute_for_each(step, context)
+    elif step.retry:
+        return _execute_with_retry(step, context, resolved_params)
+    elif step.until:
+        return _execute_until(step, context, resolved_params)
+    elif step.use:
+        return execute_use_step(step, resolved_params, context)
+    else:
+        return resolved_params
+
+
+# ---------------------------------------------------------------------------
 # Flow runner
 # ---------------------------------------------------------------------------
 
@@ -345,20 +886,21 @@ def run_flow(
         console.print(f"[blue]→[/blue] {label}")
 
         try:
-            # Build template context from accumulated state
-            template_ctx = _build_template_context(context)
-
-            # Resolve step params (render {{ flow.* }} / {{ step.* }})
-            resolved = resolve_template(step.params, template_ctx)
-
-            if step.use:
-                result = execute_use_step(step, resolved, context)
-            else:
-                # No use target — store resolved params directly
-                result = resolved
+            result = _execute_step(step, context)
 
             # Store result in step_state for subsequent steps
             context.step_state[step.id] = result
+
+            # Conditional branching — evaluate on_result if configured
+            if step.on_result:
+                handle_on_result(step.on_result, context, step.id)
+                # Check if a control action was triggered
+                if context._flow_aborted:
+                    console.print("[yellow]Flow returned by on_result action[/yellow]")
+                    return
+                if context._flow_skipped:
+                    console.print("[yellow]Flow skipped by on_result action[/yellow]")
+                    return
 
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
@@ -369,4 +911,9 @@ def run_flow(
             console.print(f"[red]✗ Step {step.id!r} failed:[/red] {_msg}")
             return
 
-    console.print("[green]✓ Flow completed successfully[/green]")
+    if context._flow_aborted:
+        console.print("[yellow]Flow returned[/yellow]")
+    elif context._flow_skipped:
+        console.print("[yellow]Flow skipped remaining steps[/yellow]")
+    else:
+        console.print("[green]✓ Flow completed successfully[/green]")
