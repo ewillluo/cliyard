@@ -233,12 +233,188 @@ The function receives the top-level ``cli`` (``click.Group``) and ``ctx``
 
 | Decorator | Purpose |
 |-----------|---------|
+| ``@register_step_type("name")`` | **Custom flow orchestration step** (referenced in ``_flows.yaml`` via ``type: plugin:xxx``) |
 | ``@register_auth_step("name")`` | Custom authentication step (referenced in ``_auth.yaml``) |
 | ``@register_field_type("name")`` | Custom field type validator |
 | ``@register_hook("name")`` | Pre/post request hook |
 | ``@register_method("name")`` | Multi-step business method (referenced in YAML via ``type: plugin:xxx``) |
 | ``@register_command("name")`` | **Top-level Click command** (not tied to any resource) |
 | ``@register_field_resolver("name")`` | Dynamic field value resolver (e.g. auto-fill version) |
+
+## Flow orchestration（命令编排）
+
+对于涉及多个 API 调用的业务流程，可以通过 ``_flows.yaml`` 定义编排流水线，
+将已有命令组合为自动化流程。创建 ``src/{pkg_name}/specs/_flows.yaml``：
+
+```yaml
+flows:
+  add_user:
+    description: 新增用户流程
+    command: add-user
+    params:
+      query:
+        - name: name
+          type: string
+          required: true
+          description: 用户名
+        - name: phone
+          type: string
+          description: 手机号
+    steps:
+      - id: check_user
+        description: 查询用户是否存在
+        use: user.list
+        params:
+          query:
+            name: '{{ flow.name }}'
+        extract:
+          exists: $.users | length
+      - id: decision
+        on_result:
+          - if: '{{ step.check_user.exists > 0 }}'
+            then:
+              - type: echo
+                message: "用户 {{ flow.name }} 已存在"
+              - action: return
+          - else:
+            steps:
+              - id: create_user
+                use: user.create
+                params:
+                  body:
+                    name: '{{ flow.name }}'
+                    phone: '{{ flow.phone | default("") }}'
+              - id: verify_user
+                use: user.list
+                params:
+                  query:
+                    name: '{{ flow.name }}'
+```
+
+使用方式：
+
+```bash
+{CLI_NAME} add-user --help
+{CLI_NAME} add-user --name 张三 --phone 13800138000
+```
+
+Flow 会在 ``create_cli()`` 时自动加载，无需额外注册步骤。
+
+### 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| ``use: resource.method`` | 引用已有 CLI 命令（如 ``user.list``、``repos.create``） |
+| ``{{ flow.xxx }}`` | 引用 flow 级 CLI 参数 |
+| ``{{ step.<id>.xxx }}`` | 引用前序步骤的输出 |
+| ``on_result`` + ``if/else`` | 基于步骤结果的条件分支 |
+| ``for_each`` | 遍历列表，对每项执行子步骤 |
+| ``retry`` | 失败后自动重试，支持指数退避 |
+| ``until`` | 轮询等待直到条件满足 |
+
+### 条件分支
+
+```yaml
+on_result:
+  - if: '{{ step.check.count > 0 }}'
+    then:
+      - type: echo
+        message: "条件满足"
+      - action: return      # 正常退出
+  - else:
+    steps:
+      - id: do_something
+        use: resource.method
+```
+
+内置动作：``return``（退出）、``abort``（中止）、``warn``（警告）、``skip``（跳过）。
+
+### 循环
+
+```yaml
+# 遍历（for_each）
+- id: batch_process
+  for_each:
+    items: '{{ step.list.items }}'
+    as: item
+    steps:
+      - id: process
+        use: resource.method
+        params:
+          body:
+            name: '{{ item.name }}'
+
+# 重试（retry）
+- id: deploy
+  use: resource.method
+  retry:
+    max_attempts: 3
+    delay: 2
+    backoff: 2              # 指数退避：2s → 4s → 8s
+    on_exhausted:
+      action: abort
+
+# 轮询（until）
+- id: wait_ready
+  use: resource.get
+  until:
+    max_iterations: 30
+    interval: 5
+    condition: '{{ step.wait_ready.status == "RUNNING" }}'
+    timeout_action: abort
+```
+
+### 插件步骤
+
+对于 ``use:`` 无法覆盖的逻辑（如发送通知、数据转换），可以注册自定义步骤：
+
+```python
+# src/{pkg_name}/specs/plugins/my_steps.py
+from cliyard.plugin import register_step_type
+
+@register_step_type("send_notification")
+def send_notification(params, context):
+    console = context["console"]
+    console.print(f"[blue]通知: {params['message']}[/blue]")
+    return {"sent": True}
+```
+
+在 ``_flows.yaml`` 中引用：
+
+```yaml
+- id: notify
+  type: plugin:send_notification
+  params:
+    message: "处理完成"
+```
+
+### 钩子（Hook）
+
+```yaml
+flows:
+  deploy_app:
+    hooks:
+      on_start: [validate_env]       # 流程启动时
+      on_end: [notify_result]         # 流程完成时
+      on_failure: [notify_failure]    # 流程失败时
+    steps:
+      - id: deploy
+        use: resource.method
+        hooks:
+          on_step_start: [log_step]   # 每步开始时
+```
+
+### 装饰器一览
+
+| 装饰器 | 用途 |
+|--------|------|
+| ``@register_step_type("name")`` | **Flow 步骤类型**（``_flows.yaml`` 中 ``type: plugin:xxx``） |
+| ``@register_auth_step("name")`` | 自定义认证步骤 |
+| ``@register_field_type("name")`` | 自定义字段验证器 |
+| ``@register_hook("name")`` | 请求前后钩子 |
+| ``@register_method("name")`` | 多步骤业务方法 |
+| ``@register_command("name")`` | 顶层 Click 命令 |
+| ``@register_field_resolver("name")`` | 动态字段值解析器 |
 
 ## Multiple environments
 
