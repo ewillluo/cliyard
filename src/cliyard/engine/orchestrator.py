@@ -951,6 +951,8 @@ def run_flow(
         CliyError: If any step fails (flow is aborted).
     """
     from rich.console import Console
+    from rich.table import Table
+    from rich import box
 
     from cliyard.client.auth import run_auth_chain
     from cliyard.client.http import HttpClient
@@ -984,9 +986,14 @@ def run_flow(
     _trigger_flow_hooks("on_start", context)
 
     # Execute steps sequentially
+    if not flow_spec.steps:
+        console.print("[yellow]Flow completed (no steps)[/yellow]")
+        return
+
+    step_results: list[dict] = []
     for step in flow_spec.steps:
         label = step.description or step.id
-        console.print(f"[blue]→[/blue] {label}")
+        console.print(f"[blue] ▶[/blue] {label}")
 
         # --- on_step_start hooks ---
         _trigger_step_hooks("on_step_start", step, context)
@@ -996,6 +1003,7 @@ def run_flow(
 
             # Store result in step_state for subsequent steps
             context.step_state[step.id] = result
+            step_results.append({"id": step.id, "label": label, "status": "ok"})
 
             # --- on_step_end hooks ---
             _trigger_step_hooks("on_step_end", step, context)
@@ -1005,27 +1013,70 @@ def run_flow(
                 handle_on_result(step.on_result, context, step.id)
                 # Check if a control action was triggered
                 if context._flow_aborted:
-                    console.print("[yellow]Flow returned by on_result action[/yellow]")
+                    _show_flow_summary(console, step_results, "returned")
                     return
                 if context._flow_skipped:
-                    console.print("[yellow]Flow skipped by on_result action[/yellow]")
+                    _show_flow_summary(console, step_results, "skipped")
                     return
 
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
-            console.print(f"[red]✗ Step {step.id!r} failed:[/red] {_msg}")
+            console.print(f"  [red]✗[/red] {_msg}")
+            step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
+            _show_flow_summary(console, step_results, "failed")
             return
         except Exception as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
-            console.print(f"[red]✗ Step {step.id!r} failed:[/red] {_msg}")
+            console.print(f"  [red]✗[/red] {_msg}")
+            step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
+            _show_flow_summary(console, step_results, "failed")
             return
 
-    if context._flow_aborted:
-        console.print("[yellow]Flow returned[/yellow]")
-    elif context._flow_skipped:
-        console.print("[yellow]Flow skipped remaining steps[/yellow]")
-    else:
-        console.print("[green]✓ Flow completed successfully[/green]")
-        _trigger_flow_hooks("on_end", context)
+    _show_flow_summary(console, step_results, "completed")
+    _trigger_flow_hooks("on_end", context)
+
+
+def _show_flow_summary(
+    console: Any,
+    step_results: list[dict],
+    outcome: str,
+) -> None:
+    """Display a summary table of step results after flow execution.
+
+    Args:
+        console: Rich console instance.
+        step_results: List of dicts with ``id``, ``label``, ``status``.
+        outcome: One of ``"completed"``, ``"returned"``, ``"skipped"``, ``"failed"``.
+    """
+    from rich.table import Table
+    from rich import box
+
+    if not step_results:
+        return
+
+    table = Table(box=box.ROUNDED, show_header=False, padding=(0, 1))
+    table.add_column(style="bold", width=3)
+    table.add_column(style="bold")
+    table.add_column()
+
+    for sr in step_results:
+        if sr["status"] == "ok":
+            table.add_row("[green]✓[/green]", sr["label"], "[dim]ok[/dim]")
+        elif sr["status"] == "fail":
+            table.add_row("[red]✗[/red]", sr["label"], "[red]failed[/red]")
+        else:
+            table.add_row("[yellow]…[/yellow]", sr["label"], "[dim]skipped[/dim]")
+
+    console.print()
+    console.print(table)
+
+    if outcome == "completed":
+        console.print("[bold green] ✓ Flow completed[/bold green]")
+    elif outcome == "returned":
+        console.print("[bold yellow] ⚑ Flow returned (early exit)[/bold yellow]")
+    elif outcome == "skipped":
+        console.print("[bold yellow] ⚑ Flow skipped[/bold yellow]")
+    elif outcome == "failed":
+        console.print("[bold red] ✗ Flow failed[/bold red]")
