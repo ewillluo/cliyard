@@ -55,9 +55,12 @@ class Template:
             # Create sandboxed environment — NO builtins injected
             # ChainableUndefined: allows {{ var|default(x) }} to work,
             # but raises on attribute access of undefined variables.
+            # finalize: converts list/tuple to JSON string so that
+            # {{ var }} renders as JSON array, not Python repr.
             self.env = SandboxedEnvironment(
                 undefined=ChainableUndefined,
                 keep_trailing_newline=True,
+                finalize=_finalize_list_tuple,
             )
 
             # --- Register whitelisted filters only ---
@@ -147,6 +150,13 @@ class Template:
 # ---------------------------------------------------------------------------
 # Whitelisted filters
 # ---------------------------------------------------------------------------
+
+
+def _finalize_list_tuple(value: Any) -> Any:
+    """Finalize hook: convert list/tuple to JSON string for safe {{ var }} output."""
+    if isinstance(value, (list, tuple)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
 
 
 def _filter_default(value: Any, default_value: Any = "") -> Any:
