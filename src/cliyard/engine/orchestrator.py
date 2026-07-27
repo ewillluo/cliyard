@@ -459,11 +459,25 @@ def _execute_action_item(
     # Sub-step (has an "id" + "use" + "params")
     step_id = item.get("id")
     if step_id and item.get("use"):
+        from cliyard.engine.flow import FlowStep
+
         template_ctx = _build_template_context(context)
         resolved = resolve_template(item.get("params", {}), template_ctx)
+        sub_step = FlowStep(
+            id=step_id,
+            description=item.get("description", ""),
+            use=item.get("use", ""),
+            params=resolved,
+            retry=item.get("retry"),
+            until=item.get("until"),
+            for_each=item.get("for_each"),
+            extract=item.get("extract"),
+            on_result=item.get("on_result"),
+            on_failure=item.get("on_failure"),
+        )
 
         try:
-            result = execute_use_step(item, resolved, context)  # type: ignore[arg-type]
+            result = _execute_step(sub_step, context)
             context.step_state[step_id] = result
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
