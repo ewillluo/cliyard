@@ -27,6 +27,7 @@ from cliyard.engine.assembler import assemble_request
 from cliyard.engine.binder import bind_and_validate
 from cliyard.engine.errors import CliyError
 from cliyard.engine.template import Template
+from cliyard.plugin import PluginRegistry
 
 # ---------------------------------------------------------------------------
 # Flow context
@@ -56,6 +57,7 @@ class FlowContext:
     prefix: str = ""
     _flow_aborted: bool = False
     _flow_skipped: bool = False
+    _current_flow: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +798,62 @@ def _execute_until(
 
 
 # ---------------------------------------------------------------------------
+# Plugin step execution
+# ---------------------------------------------------------------------------
+
+
+def _execute_plugin_step(step, context: FlowContext) -> dict:
+    """Execute a plugin step registered via ``@register_step_type``.
+
+    Used when ``step.type`` starts with ``"plugin:"``.  Extracts the
+    plugin name (everything after ``"plugin:"``), looks it up in the
+    :class:`~cliyard.plugin.PluginRegistry`, builds a scoped context
+    dict, resolves step params, and calls the plugin function.
+
+    Args:
+        step: :class:`~cliyard.engine.flow.FlowStep` with ``type: plugin:xxx``.
+        context: Current flow execution context.
+
+    Returns:
+        Dict returned by the plugin function.
+
+    Raises:
+        CliyError: If the plugin name is unknown or execution fails.
+    """
+    plugin_name = step.type[len("plugin:"):]
+    if not plugin_name:
+        raise CliyError(
+            f"Step {step.id!r}: plugin type {step.type!r} has no plugin name"
+        )
+
+    plugin_fn = PluginRegistry.get_step_type(plugin_name)
+    if plugin_fn is None:
+        raise CliyError(
+            f"Step {step.id!r}: unknown plugin {plugin_name!r} — "
+            f"no step type registered with that name"
+        )
+
+    plugin_ctx: dict[str, Any] = {
+        "flow_params": context.flow_params,
+        "step_state": context.step_state,
+        "http_client": context.http_client,
+        "console": context.console,
+    }
+
+    template_ctx = _build_template_context(context)
+    resolved_params = resolve_template(step.params, template_ctx)
+
+    try:
+        result = plugin_fn(resolved_params, plugin_ctx)
+    except Exception as e:
+        raise CliyError(
+            f"Step {step.id!r}: plugin {plugin_name!r} failed: {e}"
+        ) from e
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Step dispatch
 # ---------------------------------------------------------------------------
 
@@ -814,10 +872,86 @@ def _execute_step(step, context: FlowContext) -> Any:
         return _execute_with_retry(step, context, resolved_params)
     elif step.until:
         return _execute_until(step, context, resolved_params)
+    elif step.type and step.type.startswith("plugin:"):
+        return _execute_plugin_step(step, context)
     elif step.use:
         return execute_use_step(step, resolved_params, context)
     else:
         return resolved_params
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle hooks
+# ---------------------------------------------------------------------------
+
+
+def _trigger_flow_hooks(hook_type: str, context: FlowContext) -> None:
+    """Execute flow-level lifecycle hooks.
+
+    Looks up hook names from ``context._current_flow.hooks[hook_type]``,
+    resolves them via :class:`~cliyard.plugin.PluginRegistry`, and calls
+    each hook function with the flow context.
+
+    Hook failures are caught and logged as warnings — they never block the
+    flow execution.
+
+    Args:
+        hook_type: One of ``"on_start"``, ``"on_end"``, ``"on_failure"``.
+        context: Current flow execution context.
+    """
+    if not context._current_flow or not context._current_flow.hooks:
+        return
+
+    hook_names = context._current_flow.hooks.get(hook_type, [])
+    if isinstance(hook_names, str):
+        hook_names = [hook_names]
+    if not isinstance(hook_names, (list, tuple)):
+        return
+
+    from cliyard.plugin import PluginRegistry
+
+    for name in hook_names:
+        try:
+            hook_fn = PluginRegistry.get_hook(name)
+            if hook_fn:
+                hook_fn(context)
+        except Exception as e:
+            context.console.print(
+                f"  [yellow]⚠ Flow hook {name!r} failed: {e}[/yellow]"
+            )
+
+
+def _trigger_step_hooks(hook_type: str, step, context: FlowContext) -> None:
+    """Execute step-level lifecycle hooks.
+
+    Same pattern as :func:`_trigger_flow_hooks` but reads hook names from
+    the individual step's ``hooks`` dict.
+
+    Args:
+        hook_type: One of ``"on_step_start"``, ``"on_step_end"``.
+        step: The :class:`~cliyard.engine.flow.FlowStep` being executed.
+        context: Current flow execution context.
+    """
+    if not step or not getattr(step, "hooks", None):
+        return
+
+    hook_names = step.hooks.get(hook_type, [])
+    if isinstance(hook_names, str):
+        hook_names = [hook_names]
+    if not isinstance(hook_names, (list, tuple)):
+        return
+
+    from cliyard.plugin import PluginRegistry
+
+    for name in hook_names:
+        try:
+            hook_fn = PluginRegistry.get_hook(name)
+            if hook_fn:
+                hook_fn(context)
+        except Exception as e:
+            context.console.print(
+                f"  [yellow]⚠ Step hook {name!r} failed: {e}[/yellow]"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -878,18 +1012,28 @@ def run_flow(
         service_spec=service_spec,
         base_url=service_ctx.base_url,
         prefix=service_ctx.prefix,
+        _current_flow=flow_spec,
     )
+
+    # --- on_start hooks ---
+    _trigger_flow_hooks("on_start", context)
 
     # Execute steps sequentially
     for step in flow_spec.steps:
         label = step.description or step.id
         console.print(f"[blue]→[/blue] {label}")
 
+        # --- on_step_start hooks ---
+        _trigger_step_hooks("on_step_start", step, context)
+
         try:
             result = _execute_step(step, context)
 
             # Store result in step_state for subsequent steps
             context.step_state[step.id] = result
+
+            # --- on_step_end hooks ---
+            _trigger_step_hooks("on_step_end", step, context)
 
             # Conditional branching — evaluate on_result if configured
             if step.on_result:
@@ -905,10 +1049,12 @@ def run_flow(
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
             console.print(f"[red]✗ Step {step.id!r} failed:[/red] {_msg}")
+            _trigger_flow_hooks("on_failure", context)
             return
         except Exception as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
             console.print(f"[red]✗ Step {step.id!r} failed:[/red] {_msg}")
+            _trigger_flow_hooks("on_failure", context)
             return
 
     if context._flow_aborted:
@@ -917,3 +1063,4 @@ def run_flow(
         console.print("[yellow]Flow skipped remaining steps[/yellow]")
     else:
         console.print("[green]✓ Flow completed successfully[/green]")
+        _trigger_flow_hooks("on_end", context)
