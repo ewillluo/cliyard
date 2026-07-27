@@ -152,64 +152,88 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
 
 
 def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
-    """Load flow definitions from ``_flows.yaml`` in a spec directory.
+    """Load flow definitions from a spec directory.
 
-    Reads ``_flows.yaml`` and parses each flow into a :class:`FlowSpec`
-    dataclass. Returns an empty list if the file does not exist.
+    Discovers flows from two sources (merged in order):
+
+    1. ``_flows.yaml`` — registry format with a ``flows:`` key containing
+       multiple flow definitions.  Suitable for defining related flows.
+    2. ``_flow_<name>.yaml`` — individual flow files, one per file.
+       Each file defines a single flow directly (no ``flows:`` wrapper).
+
+    Returns an empty list if no flow files are found.
 
     Args:
         spec_dir: Path to the service spec directory.
 
     Returns:
         List of :class:`FlowSpec` instances.
-
-    Raises:
-        FileNotFoundError: If ``_flows.yaml`` exists but cannot be read.
-        yaml.YAMLError: If the YAML has syntax errors.
-        ValueError: If a flow is missing required fields (``command``, ``steps``).
     """
     spec_dir = Path(spec_dir)
-    flows_path = spec_dir / "_flows.yaml"
-
-    if not flows_path.exists():
-        return []
-
-    raw = _load_yaml(flows_path)
-    flows_raw = raw.get("flows", {})
-
-    if not flows_raw:
-        return []
-
     flows: list[FlowSpec] = []
-    for flow_name, flow_dict in flows_raw.items():
-        if not isinstance(flow_dict, dict):
-            raise ValueError(
-                f"{flows_path}: Flow '{flow_name}' must be a mapping"
-            )
-        if "command" not in flow_dict:
-            raise ValueError(
-                f"{flows_path}: Flow '{flow_name}' must have a 'command' field"
-            )
-        if not flow_dict.get("steps"):
-            raise ValueError(
-                f"{flows_path}: Flow '{flow_name}' must have non-empty 'steps'"
-            )
 
-        steps = [
-            _parse_flow_step(step_dict, flows_path)
-            for step_dict in flow_dict["steps"]
-        ]
+    # Source 1: _flows.yaml (multi-flow registry format)
+    flows_path = spec_dir / "_flows.yaml"
+    if flows_path.exists():
+        raw = _load_yaml(flows_path)
+        flows_raw = raw.get("flows") or {}
+        for flow_name, flow_dict in flows_raw.items():
+            if not isinstance(flow_dict, dict):
+                continue
+            flow = _build_flow_spec(flow_name, flow_dict, flows_path)
+            if flow:
+                flows.append(flow)
 
-        flow = FlowSpec(
-            command=flow_dict["command"],
-            description=flow_dict.get("description", ""),
-            params=flow_dict.get("params", {}),
-            steps=steps,
-            hooks=flow_dict.get("hooks"),
-        )
-        flows.append(flow)
+    # Source 2: _flow_<name>.yaml (individual flow files)
+    for yaml_file in sorted(spec_dir.glob("_flow_*.yaml")):
+        if yaml_file.name == "_flows.yaml":
+            continue  # already handled above
+        raw = _load_yaml(yaml_file)
+        # Support both direct flow and {flows: {name: ...}} wrapping
+        if "flows" in raw:
+            for flow_name, flow_dict in raw["flows"].items():
+                flow = _build_flow_spec(flow_name, flow_dict, yaml_file)
+                if flow:
+                    flows.append(flow)
+        else:
+            # Direct flow definition — use filename stem as fallback name
+            flow_name = yaml_file.stem.replace("_flow_", "", 1)
+            flow = _build_flow_spec(flow_name, raw, yaml_file)
+            if flow:
+                flows.append(flow)
 
     return flows
+
+
+def _build_flow_spec(
+    flow_name: str,
+    flow_dict: dict,
+    source_path: Path,
+) -> FlowSpec | None:
+    """Build a FlowSpec from a parsed YAML dict.
+
+    Returns ``None`` if required fields are missing.
+    """
+    if "command" not in flow_dict:
+        raise ValueError(
+            f"{source_path}: Flow '{flow_name}' must have a 'command' field"
+        )
+
+    steps_raw = flow_dict.get("steps", [])
+    if not steps_raw:
+        raise ValueError(
+            f"{source_path}: Flow '{flow_name}' must have non-empty 'steps'"
+        )
+
+    steps = [_parse_flow_step(step_dict, source_path) for step_dict in steps_raw]
+
+    return FlowSpec(
+        command=flow_dict["command"],
+        description=flow_dict.get("description", ""),
+        params=flow_dict.get("params", {}),
+        steps=steps,
+        hooks=flow_dict.get("hooks"),
+    )
 
 
 # ---------------------------------------------------------------------------
