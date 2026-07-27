@@ -185,8 +185,19 @@ def _filter_length(value: Any) -> int:
     return len(value)
 
 
-def _filter_first(value: list | tuple | str) -> Any:
-    return value[0]
+def _filter_first(value: list | tuple | str | Any) -> Any:
+    """Return the first item of a sequence, or None if empty.
+
+    Handles generators (from filters like selectattr/map) by converting
+    to list first. Compatible with Jinja2's built-in first filter.
+    """
+    if hasattr(value, '__iter__') and not isinstance(value, (str, dict)):
+        for item in value:
+            return item
+        return None
+    if isinstance(value, (list, tuple)) and len(value) > 0:
+        return value[0]
+    return None
 
 
 def _filter_last(value: list | tuple | str) -> Any:

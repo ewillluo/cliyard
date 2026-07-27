@@ -53,6 +53,7 @@ class FlowContext:
     service_spec: dict = field(default_factory=dict)
     base_url: str = ""
     prefix: str = ""
+    pre_filled_auth: dict | None = None
     _flow_aborted: bool = False
     _flow_skipped: bool = False
     _current_flow: Any = None
@@ -232,7 +233,8 @@ def execute_use_step(
     step_ctx = ServiceContext(
         base_url=base_url,
         prefix=prefix,
-        auth_spec=None,
+        auth_spec=context.service_spec.get("auth"),
+        pre_filled_auth=context.pre_filled_auth,
         servers=context.service_spec.get("servers"),
         timeout=30,
     )
@@ -979,6 +981,7 @@ def run_flow(
         service_spec=service_spec,
         base_url=service_ctx.base_url,
         prefix=service_ctx.prefix,
+        pre_filled_auth=service_ctx.pre_filled_auth,
         _current_flow=flow_spec,
     )
 
