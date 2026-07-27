@@ -2,13 +2,13 @@
  
 Generates Click groups and commands from loaded YAML resource specs.
 Follows a pipeline pattern where each command callback runs through stages:
- 
+
     1. bind_and_validate() — validate params against spec
     2. run_auth_chain()  — authenticate via env vars / login
     3. assemble_request() — build HTTP request from validated params
     4. http_request()  — execute HTTP call
     5. parse_response() + format — parse and display output
- 
+
 This avoids ketacli's giant closure pattern by splitting each stage into
 a standalone function that can be tested and evolved independently.
 """
@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import click
+
+from cliyard.engine.flow import FlowSpec
 
 
 # ---------------------------------------------------------------------------
@@ -618,3 +620,67 @@ def build_resource_group(
         group.add_command(build_operation_command(method_name, method_spec, resource_spec, ctx))
 
     return group
+
+
+# ---------------------------------------------------------------------------
+# Flow command builder
+# ---------------------------------------------------------------------------
+
+
+def build_flow_command(flow_spec: FlowSpec, ctx: ServiceContext) -> click.Command:
+    """Build a Click command from a FlowSpec for command orchestration.
+
+    Flow params are converted to Click options using the same
+    ``_param_to_option()`` converter used for resource methods.
+
+    Args:
+        flow_spec: FlowSpec dataclass from :mod:`cliyard.engine.flow`.
+        ctx: ServiceContext carrying base_url, prefix, and auth config.
+
+    Returns:
+        ``click.Command`` for the flow orchestration.
+    """
+    params_spec: dict[str, Any] = flow_spec.params
+
+    click_params: list[click.Parameter] = []
+
+    for _loc in ("query", "body", "header"):
+        for param in params_spec.get(_loc, []):
+            click_params.append(_param_to_option(param))
+
+    click_params.append(
+        click.Option(
+            ["--format"],
+            type=click.Choice(["table", "json", "csv"]),
+            default="json",
+            help="Output format",
+            show_default=True,
+        )
+    )
+
+    def callback(**kwargs: Any) -> None:
+        from cliyard.engine.errors import CliyError
+        from rich.console import Console
+
+        console = Console()
+
+        try:
+            from cliyard.engine.orchestrator import run_flow
+
+            run_flow(flow_spec, kwargs, ctx)
+        except ImportError as e:
+            console.print(
+                f"[red]Error:[/red] Flow orchestrator not implemented yet: {e}"
+            )
+        except CliyError as e:
+            console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
+        except Exception as e:
+            _msg = str(e).replace('[', '[[]').replace(']', '[]]')
+            console.print(f"[red]错误:[/red] {_msg}")
+
+    return click.Command(
+        name=flow_spec.command,
+        callback=callback,
+        params=click_params,
+        short_help=flow_spec.description or "Flow orchestration",
+    )
