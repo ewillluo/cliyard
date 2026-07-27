@@ -738,12 +738,14 @@ def http_mock(monkeypatch: pytest.MonkeyPatch) -> dict:
         query_params: dict | None = None,
         headers: dict | None = None,
         timeout: int | None = None,
+        files: dict | None = None,
     ) -> MagicMock:
         calls.append({
             "method": method,
             "url": url,
             "data": data,
             "query_params": query_params,
+            "files": files,
         })
 
         if not responses:

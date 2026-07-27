@@ -209,6 +209,178 @@ def bind_and_validate(kwargs: dict[str, Any], method_spec: dict[str, Any]) -> di
 # ---------------------------------------------------------------------------
 
 
+def execute_pipeline(
+    kwargs: dict[str, Any],
+    method_spec: dict[str, Any],
+    resource_spec: dict[str, Any],
+    service_ctx: ServiceContext,
+    resource_name: str = "",
+    http_client: Any = None,
+    raw_response: bool = False,
+) -> dict[str, Any]:
+    """Execute the full request pipeline and return response data.
+
+    Args:
+        http_client: Pre-configured :class:`HttpClient` (e.g. with auth headers
+            already set).  If omitted, a fresh client is created and the auth
+            chain from *service_ctx* is executed.
+        raw_response: If ``True``, return the raw JSON response dict instead
+            of the parsed ``{items, total, fields}`` format.  Used by the
+            flow orchestrator for JSONPath extraction.
+
+    Returns:
+        Parsed response data dict (``{items, total, fields}``) by default,
+        or the raw JSON response dict when *raw_response* is ``True``.
+
+    Raises:
+        CliyError: On pipeline failure.
+    """
+    from cliyard.client.auth import run_auth_chain
+    from cliyard.client.http import HttpClient
+    from cliyard.engine.assembler import assemble_request
+    from cliyard.engine.binder import bind_and_validate
+    from cliyard.engine.errors import CliyError
+    from cliyard.engine.hooks import run_post_response_hooks, run_pre_request_hooks
+    from cliyard.output.handler import parse_response
+
+    if not method_spec.get("http", {}).get("path"):
+        method_spec.setdefault("http", {})["path"] = resource_spec.get("path", resource_name)
+
+    validated = bind_and_validate(kwargs, method_spec)
+
+    # Read file-type params (skip for multipart — files stay as paths)
+    _is_multipart = method_spec.get("body_type") == "multipart"
+    if not _is_multipart:
+        for _location in ("path", "query", "header", "body"):
+            for _param in method_spec.get("params", {}).get(_location, []):
+                if _param.get("type") == "file" and _param["name"] in kwargs:
+                    _file_path = kwargs[_param["name"]]
+                    if isinstance(_file_path, (tuple, list)):
+                        _file_path = _file_path[0]
+                    if _file_path:
+                        try:
+                            with open(_file_path) as _f:
+                                kwargs[_param["name"]] = _f.read()
+                        except Exception as _e:
+                            raise CliyError(f"Failed to read config file {_file_path}: {_e}")
+                    validated = bind_and_validate(kwargs, method_spec)
+
+    from cliyard.plugin import PluginRegistry as _Reg
+    from cliyard.plugin.discovery import discover_plugins as _disc
+
+    _disc()
+    for _loc in ("body", "query", "header", "path", "argument"):
+        for _param in method_spec.get("params", {}).get(_loc, []):
+            _resolver_name = _param.get("resolver", "")
+            if _resolver_name.startswith("plugin:"):
+                _fn_name = _resolver_name[7:]
+                _fn = _Reg.get_field_resolver(_fn_name)
+                if _fn:
+                    _cli = HttpClient(service_ctx.base_url)
+                    if service_ctx.auth_spec:
+                        run_auth_chain(
+                            service_ctx.auth_spec,
+                            http_client=_cli,
+                            pre_filled=service_ctx.pre_filled_auth,
+                        )
+                    kwargs[_param["name"]] = _fn(
+                        params=kwargs,
+                        http_client=_cli,
+                        config=_param.get("resolver_config", {}),
+                    )
+                    validated = bind_and_validate(kwargs, method_spec)
+
+    merged_params: dict[str, Any] = {}
+    for loc in ("query", "body", "header"):
+        merged_params[loc] = getattr(validated, loc)
+    merged_params["path"] = getattr(validated, "path")
+    merged_params.update(getattr(validated, "path"))
+    merged_params.update(getattr(validated, "body"))
+    merged_params.update(getattr(validated, "argument"))
+
+    # Auth chain (skip if a pre-configured client was provided)
+    if http_client is None:
+        if service_ctx.auth_spec:
+            client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
+            run_auth_chain(
+                service_ctx.auth_spec,
+                http_client=client,
+                pre_filled=service_ctx.pre_filled_auth,
+            )
+            if client.default_headers:
+                merged_params.setdefault("header", {})
+                if isinstance(merged_params.get("header"), dict):
+                    merged_params["header"].update(client.default_headers)
+            http_client = client
+        else:
+            http_client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
+
+    req = assemble_request(
+        method_spec,
+        merged_params,
+        base_url=service_ctx.base_url,
+        prefix=service_ctx.prefix,
+    )
+
+    # Stage 4: run pre-request hooks
+    hooks_config = method_spec.get("hooks", {})
+    _pre_hooks = hooks_config.get("pre-request", [])
+    if _pre_hooks:
+        req = run_pre_request_hooks(_pre_hooks, req)
+
+    _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
+    response = http_client.request(
+        method=req.method,
+        url=req.url,
+        data=req.body,
+        query_params=req.query_params,
+        headers=req.headers,
+        files=req.files,
+        timeout=_timeout,
+    )
+
+    if method_spec.get("response_type") == "file":
+        import re as _re
+
+        cd = response.headers.get("Content-Disposition", "")
+        fname = "download"
+        if "filename=" in cd:
+            fname = cd.split("filename=")[1].strip('"\'')
+        elif req.url.rstrip("/").split("/"):
+            fname = req.url.rstrip("/").split("/")[-1]
+        ct = response.headers.get("Content-Type", "")
+        if "." not in fname:
+            ext = _re.sub(r".*/(\w+).*", r"\1", ct)
+            fname = f"{fname}.{ext}" if ext and ext != ct else f"{fname}.bin"
+        with open(fname, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        return {"_downloaded": fname}
+
+    resp_data = response.json()
+
+    # Flow orchestrator needs raw response for JSONPath extraction
+    if raw_response:
+        return resp_data
+
+    output_spec: dict[str, Any] = method_spec.get("output", {})
+    if output_spec.get("items_path"):
+        _raw_hooks = hooks_config.get("before-extract", [])
+        if _raw_hooks:
+            resp_data = run_post_response_hooks(_raw_hooks, resp_data)
+
+        data = parse_response(resp_data, output_spec)
+
+        _fmt_hooks = hooks_config.get("before-format", [])
+        if _fmt_hooks:
+            data = run_post_response_hooks(_fmt_hooks, data)
+
+        return data
+
+    return resp_data
+
+
 def _make_callback(
     method_spec: dict[str, Any],
     service_ctx: ServiceContext,
@@ -218,21 +390,13 @@ def _make_callback(
     """Create a Click callback that runs the full pipeline stages.
 
     Pipeline:
-        1. :func:`cliyard.engine.binder.bind_and_validate` — validate params
-        2. :func:`cliyard.client.auth.run_auth_chain` — authenticate
-        3. :func:`cliyard.engine.assembler.assemble_request` — build request
-        4. :func:`cliyard.client.http.request` — execute HTTP
-        5. :func:`cliyard.output.handler.parse_response` + formatters — output
+        1. :func:`execute_pipeline` — shared pipeline (bind → auth → assemble → http → parse)
+        2. Format output for display (table / json / csv)
     """
 
     def callback(**kwargs: Any) -> None:
-        from cliyard.client.auth import run_auth_chain
-        from cliyard.client.http import request as http_request
-        from cliyard.engine.assembler import assemble_request
-        from cliyard.engine.binder import bind_and_validate
         from cliyard.engine.errors import CliyError
         from cliyard.output.formatter import format_as_json, format_as_table, format_as_csv
-        from cliyard.output.handler import parse_response
         from rich.console import Console
 
         console = Console()
@@ -241,175 +405,39 @@ def _make_callback(
             # Extract built-in options (--format) before validation
             output_format: str = kwargs.pop("format", "json")
 
-            # Ensure http.path falls back to resource path (not filename)
-            if not method_spec.get("http", {}).get("path"):
-                method_spec.setdefault("http", {})["path"] = resource_spec.get("path", resource_name)
+            # Run shared pipeline
+            data = execute_pipeline(kwargs, method_spec, resource_spec, service_ctx, resource_name)
 
-            # Stage 1: bind & validate
-            validated = bind_and_validate(kwargs, method_spec)
+            # Skip output formatting for file downloads
+            if isinstance(data, dict) and data.get("_downloaded"):
+                console.print(f"[green]Downloaded: {data['_downloaded']}[/green]")
+                return
 
-            # Read file-type params: replace file paths with contents
-            # Skip for multipart uploads (files stay as paths for binary handling)
-            _is_multipart = method_spec.get("body_type") == "multipart"
-            if not _is_multipart:
-                for _location in ("path", "query", "header", "body"):
-                    for _param in method_spec.get("params", {}).get(_location, []):
-                        if _param.get("type") == "file" and _param["name"] in kwargs:
-                            _file_path = kwargs[_param["name"]]
-                            if isinstance(_file_path, (tuple, list)):
-                                _file_path = _file_path[0]
-                            if _file_path:
-                                from cliyard.engine.errors import CliyError as _CliyErr
-
-                                try:
-                                    with open(_file_path) as _f:
-                                        kwargs[_param["name"]] = _f.read()
-                                except Exception as _e:
-                                    raise _CliyErr(f"Failed to read config file {_file_path}: {_e}")
-                            # Re-bind after file read (re-validate)
-                            validated = bind_and_validate(kwargs, method_spec)
-
-            # Stage 1b: resolve field-level plugins (e.g. dynamic defaults)
-            from cliyard.plugin import PluginRegistry as _Reg
-            from cliyard.plugin.discovery import discover_plugins as _disc
-
-            _disc()
-            for _loc in ("body", "query", "header", "path", "argument"):
-                for _param in method_spec.get("params", {}).get(_loc, []):
-                    _resolver_name = _param.get("resolver", "")
-                    if _resolver_name.startswith("plugin:"):
-                        _fn_name = _resolver_name[7:]
-                        _fn = _Reg.get_field_resolver(_fn_name)
-                        if _fn:
-                            from cliyard.client.http import HttpClient as _HC
-                            from cliyard.client.auth import run_auth_chain as _auth
-
-                            _cli = _HC(service_ctx.base_url)
-                            if service_ctx.auth_spec:
-                                _auth(service_ctx.auth_spec, http_client=_cli,
-                                      pre_filled=service_ctx.pre_filled_auth)
-                            kwargs[_param["name"]] = _fn(
-                                params=kwargs,
-                                http_client=_cli,
-                                config=_param.get("resolver_config", {}),
-                            )
-                            validated = bind_and_validate(kwargs, method_spec)
-
-            merged_params: dict[str, Any] = {}
-            # Nest params by location for assembler
-            for loc in ("query", "body", "header"):
-                merged_params[loc] = getattr(validated, loc)
-            # Path vars at top level for template rendering + nested for consistency
-            merged_params["path"] = getattr(validated, "path")
-            merged_params.update(getattr(validated, "path"))
-            # Body vars also at top level (path templates may reference body params)
-            merged_params.update(getattr(validated, "body"))
-            # Argument vars at top level
-            merged_params.update(getattr(validated, "argument"))
-
-            # Stage 2: run auth chain
-            if service_ctx.auth_spec:
-                from cliyard.client.http import HttpClient
-
-                client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
-                run_auth_chain(
-                    service_ctx.auth_spec,
-                    http_client=client,
-                    pre_filled=service_ctx.pre_filled_auth,
-                )
-                # Merge auth-injected headers into merged_params
-                if client.default_headers:
-                    merged_params.setdefault("header", {})
-                    if isinstance(merged_params.get("header"), dict):
-                        merged_params["header"].update(client.default_headers)
-
-            # Stage 3: assemble request
-            req = assemble_request(
-                method_spec,
-                merged_params,
-                base_url=service_ctx.base_url,
-                prefix=service_ctx.prefix,
-            )
-
-            # Run pre-request hooks from YAML config
-            from cliyard.engine.hooks import run_pre_request_hooks
-
-            hooks_config = method_spec.get("hooks", {})
-            _pre_hooks = hooks_config.get("pre-request", [])
-            if _pre_hooks:
-                req = run_pre_request_hooks(_pre_hooks, req)
-
-            # Stage 4: execute HTTP request
-            _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
-            response = http_request(
-                method=req.method,
-                url=req.url,
-                data=req.body,
-                query_params=req.query_params,
-                headers=req.headers,
-                files=req.files,
-                timeout=_timeout,
-            )
-
-            # Stage 5: parse & format response
-            resp_data = response.json()
+            # Format output for CLI display
             output_spec: dict[str, Any] = method_spec.get("output", {})
+            items = data.get("items")
 
-            if method_spec.get("response_type") == "file":
-                # File download: save response to disk
-                import re as _re
-                cd = response.headers.get("Content-Disposition", "")
-                fname = "download"
-                if "filename=" in cd:
-                    fname = cd.split("filename=")[1].strip('"\'')
-                elif req.url.rstrip("/").split("/"):
-                    fname = req.url.rstrip("/").split("/")[-1]
-                ct = response.headers.get("Content-Type", "")
-                if "." not in fname:
-                    ext = _re.sub(r".*/(\w+).*", r"\1", ct)
-                    fname = f"{fname}.{ext}" if ext and ext != ct else f"{fname}.bin"
-                with open(fname, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                console.print(f"[green]Downloaded: {fname}[/green]")
-            elif output_spec.get("items_path"):
-                from cliyard.engine.hooks import run_post_response_hooks as _run_hooks
-
-                # Stage 5a: before-extract hooks — transform raw response before JSONPath extraction
-                _raw_hooks = hooks_config.get("before-extract", [])
-                if _raw_hooks:
-                    resp_data = _run_hooks(_raw_hooks, resp_data)
-
-                data = parse_response(resp_data, output_spec)
-
-                # Stage 5b: before-format hooks — transform parsed {items, total, fields} before output
-                _fmt_hooks = hooks_config.get("before-format", [])
-                if _fmt_hooks:
-                    data = _run_hooks(_fmt_hooks, data)
-
-                items = data.get("items")
-                if items is not None and len(items) == 0:
-                    console.print("[yellow]No results found.[/yellow]")
-                elif items:
-                    fields = output_spec.get("fields", [])
-                    if output_format == "json":
-                        console.print(format_as_json(data))
-                    elif output_format == "csv":
-                        console.print(format_as_csv(data, fields))
-                    else:
-                        console.print(format_as_table(data, fields))
-                else:
+            if items is not None and len(items) == 0:
+                console.print("[yellow]No results found.[/yellow]")
+            elif items:
+                fields = output_spec.get("fields", [])
+                if output_format == "json":
                     console.print(format_as_json(data))
+                elif output_format == "csv":
+                    console.print(format_as_csv(data, fields))
+                else:
+                    console.print(format_as_table(data, fields))
+            elif output_spec.get("items_path"):
+                console.print(format_as_json(data))
             else:
                 if output_format == "json":
-                    console.print(format_as_json(resp_data))
-                elif output_format == "csv" and isinstance(resp_data, list) and resp_data:
-                    fields = [{"name": k, "alias": k} for k in resp_data[0]]
-                    console.print(format_as_csv({"items": resp_data, "total": len(resp_data), "fields": fields}, fields))
+                    console.print(format_as_json(data))
+                elif output_format == "csv" and isinstance(data, list) and data:
+                    fields = [{"name": k, "alias": k} for k in data[0]]
+                    console.print(format_as_csv({"items": data, "total": len(data), "fields": fields}, fields))
                 else:
-                    fields = [{"name": k, "alias": k} for k in resp_data[0]] if isinstance(resp_data, list) and resp_data else []
-                    console.print(format_as_table({"items": resp_data if isinstance(resp_data, list) else [resp_data], "total": 0, "fields": fields}, fields))
+                    fields = [{"name": k, "alias": k} for k in data[0]] if isinstance(data, list) and data else []
+                    console.print(format_as_table({"items": data if isinstance(data, list) else [data], "total": 0, "fields": fields}, fields))
 
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")

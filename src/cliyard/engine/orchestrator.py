@@ -23,8 +23,6 @@ from typing import Any
 from jinja2 import ChainableUndefined
 from jinja2.sandbox import SandboxedEnvironment
 
-from cliyard.engine.assembler import assemble_request
-from cliyard.engine.binder import bind_and_validate
 from cliyard.engine.errors import CliyError
 from cliyard.engine.template import Template
 from cliyard.plugin import PluginRegistry
@@ -206,113 +204,66 @@ def execute_use_step(
     resolved_params: dict,
     context: FlowContext,
 ) -> dict:
-    """Execute a ``use: resource.method`` step through the pipeline.
+    """Execute a ``use: resource.method`` step.
 
-    Pipeline stages (mirrors ``_make_callback()`` in builder.py):
-
-    1. Look up ``resource.method`` in service_spec
-    2. Bind & validate params via ``bind_and_validate()``
-    3. Merge params grouped by HTTP location
-    4. Assemble HTTP request via ``assemble_request()``
-    5. Execute via ``context.http_client.request()``
-    6. Parse response (JSONPath extraction if ``step.extract`` is set)
-
-    Args:
-        step: :class:`~cliyard.engine.flow.FlowStep` dataclass instance.
-        resolved_params: Step parameters after template resolution.
-        context: :class:`FlowContext` with shared client and service data.
+    Delegates to :func:`cliyard.engine.builder.execute_pipeline`, which is the
+    same shared pipeline used by direct CLI invocations.  This ensures every
+    command runs through identical logic regardless of how it was triggered.
 
     Returns:
         Parsed response data (typically a ``dict``).
-
-    Raises:
-        CliyError: If any pipeline stage fails.
     """
-    try:
-        # --- Stage 1-2: Look up resource & method specs ---
-        resource_spec, method_spec = _lookup_resource_method(
-            step.use, context.service_spec
-        )
+    from cliyard.engine.builder import ServiceContext, execute_pipeline
 
-        # Ensure http.path falls back to resource path (matching builder.py)
-        if not method_spec.get("http", {}).get("path"):
-            method_spec.setdefault("http", {})["path"] = resource_spec.get(
-                "path", resource_spec.get("name", "")
-            )
+    resource_spec, method_spec = _lookup_resource_method(
+        step.use, context.service_spec
+    )
 
-        # --- Stage 3: Bind & validate ---
-        validated = bind_and_validate(resolved_params, method_spec)
+    base_url = context.base_url
+    prefix = context.prefix
+    resource_server_name = resource_spec.get("server", "")
+    if resource_server_name:
+        servers = context.service_spec.get("servers", {})
+        srv = servers.get(resource_server_name, {})
+        if srv:
+            base_url = srv.get("base_url", base_url)
+            prefix = srv.get("prefix", prefix)
 
-        # --- Stage 4: Merge params (matching builder.py pattern) ---
-        merged: dict[str, Any] = {}
-        for loc in ("query", "body", "header"):
-            merged[loc] = getattr(validated, loc)
-        merged["path"] = getattr(validated, "path")
-        merged.update(getattr(validated, "path"))
-        merged.update(getattr(validated, "body"))
-        merged.update(getattr(validated, "argument"))
+    step_ctx = ServiceContext(
+        base_url=base_url,
+        prefix=prefix,
+        auth_spec=None,
+        servers=context.service_spec.get("servers"),
+        timeout=30,
+    )
 
-        # Merge auth-injected headers into merged params
-        if context.http_client and context.http_client.default_headers:
-            merged.setdefault("header", {})
-            if isinstance(merged.get("header"), dict):
-                merged["header"].update(context.http_client.default_headers)
+    data = execute_pipeline(
+        kwargs=resolved_params,
+        method_spec=method_spec,
+        resource_spec=resource_spec,
+        service_ctx=step_ctx,
+        resource_name=resource_spec.get("name", ""),
+        http_client=context.http_client,
+        raw_response=True,
+    )
 
-        # Resolve resource-level server config (per-resource overrides)
-        base_url = context.base_url
-        prefix = context.prefix
-        resource_server_name = resource_spec.get("server", "")
-        if resource_server_name:
-            servers = context.service_spec.get("servers", {})
-            srv = servers.get(resource_server_name, {})
-            if srv:
-                base_url = srv.get("base_url", base_url)
-                prefix = srv.get("prefix", prefix)
+    # Extract specific fields if configured in step.extract
+    if step.extract and isinstance(data, dict):
+        import jsonpath_ng as _jp
 
-        # --- Stage 5: Assemble HTTP request ---
-        req = assemble_request(
-            method_spec,
-            merged,
-            base_url=base_url,
-            prefix=prefix,
-        )
+        extracted: dict[str, Any] = {}
+        for field_name, json_path in step.extract.items():
+            try:
+                expr = _jp.parse(json_path)
+                matches = expr.find(data)
+                extracted[field_name] = (
+                    matches[0].value if matches else None
+                )
+            except Exception:
+                extracted[field_name] = None
+        return extracted
 
-        # --- Stage 6: Execute HTTP request ---
-        _timeout = method_spec.get("http", {}).get("timeout", 30)
-        response = context.http_client.request(
-            method=req.method,
-            url=req.url,
-            data=req.body,
-            query_params=req.query_params,
-            headers=req.headers,
-            timeout=_timeout,
-        )
-
-        # --- Stage 7: Parse response ---
-        resp_data = response.json()
-
-        # Extract specific fields if configured in step.extract
-        if step.extract:
-            import jsonpath_ng as _jp
-
-            extracted: dict[str, Any] = {}
-            for field_name, json_path in step.extract.items():
-                try:
-                    expr = _jp.parse(json_path)
-                    matches = expr.find(resp_data)
-                    extracted[field_name] = (
-                        matches[0].value if matches else None
-                    )
-                except Exception:
-                    extracted[field_name] = None
-            return extracted
-
-        return resp_data
-
-    except CliyError:
-        raise
-    except Exception as e:
-        raise CliyError(f"Step {step.id!r} failed: {e}") from e
+    return data
 
 
 # ---------------------------------------------------------------------------
