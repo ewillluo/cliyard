@@ -35,20 +35,34 @@ class HttpClient:
             files: File uploads for multipart requests.
         """
         merged_headers: dict[str, str] = {**self.default_headers, **(headers or {})}
-        send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH")
-        if send_json and not files and "Content-Type" not in merged_headers:
-            merged_headers["Content-Type"] = "application/json"
         if not url.startswith("http"):
             url = f"{self.base_url}{url}"
-        resp = self._session.request(
-            method,
-            url,
-            json=data,
-            params=query_params,
-            headers=merged_headers or None,
-            timeout=timeout or self.timeout,
-            files=files,
-        )
+
+        if files is not None:
+            merged_headers.setdefault("Content-Type", "application/json")
+            resp = self._session.request(
+                method,
+                url,
+                data=data,
+                params=query_params,
+                headers=merged_headers or None,
+                timeout=timeout or self.timeout,
+                files=files,
+            )
+        else:
+            send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH")
+            if send_json and "Content-Type" not in merged_headers:
+                merged_headers["Content-Type"] = "application/json"
+            if not url.startswith("http"):
+                url = f"{self.base_url}{url}"
+            resp = self._session.request(
+                method,
+                url,
+                json=data if send_json else None,
+                params=query_params,
+                headers=merged_headers or None,
+                timeout=timeout or self.timeout,
+            )
         if 400 <= resp.status_code < 600:
             raise ApiError(status=resp.status_code, url=url, body=resp.text)
         return resp
