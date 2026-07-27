@@ -201,14 +201,20 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
     for _cmd_name, _cmd_fn in PluginRegistry.get_all_commands().items():
         _cmd_fn(cli, base_ctx)
 
-    # Register flow orchestration commands
     from cliyard.engine.loader import load_flows
     from cliyard.engine.builder import build_flow_command
 
     flows = load_flows(spec_path)
-    for flow_spec in flows:
-        flow_cmd = build_flow_command(flow_spec, base_ctx, service)
-        cli.add_command(flow_cmd)
+    if flows:
+        flow_group = click.Group(
+            name="flow-run",
+            help="Run orchestrated workflow pipelines",
+            short_help="运行编排流水线",
+        )
+        for flow_spec in flows:
+            flow_cmd = build_flow_command(flow_spec, base_ctx, service)
+            flow_group.add_command(flow_cmd)
+        cli.add_command(flow_group)
 
     return cli
 

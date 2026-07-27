@@ -294,11 +294,11 @@ flows:
 使用方式：
 
 ```bash
-{CLI_NAME} add-user --help
-{CLI_NAME} add-user --name 张三 --phone 13800138000
+{CLI_NAME} flow-run add-user --help
+{CLI_NAME} flow-run add-user --name 张三 --phone 13800138000
 ```
 
-Flow 会在 ``create_cli()`` 时自动加载，无需额外注册步骤。
+Flow 会在 ``create_cli()`` 时自动加载，注册在 ``flow-run`` 子命令下。
 
 ### 核心概念
 
