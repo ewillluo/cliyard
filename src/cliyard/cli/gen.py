@@ -318,8 +318,8 @@ steps:
 使用方式：
 
 ```bash
-{CLI_NAME} flow-run add-user --help
-{CLI_NAME} flow-run add-user --name 张三 --phone 13800138000
+{CLI_NAME} flow run add-user --help
+{CLI_NAME} flow run add-user --name 张三 --phone 13800138000
 ```
 
 也可将所有步骤直接写在 ``_flows.yaml`` 的 ``steps:`` 字段中（适用于简单流程）。

@@ -202,18 +202,32 @@ def create_cli(spec_dir: str, version: str | None = None) -> click.Group:
         _cmd_fn(cli, base_ctx)
 
     from cliyard.engine.loader import load_flows
-    from cliyard.engine.builder import build_flow_command
 
     flows = load_flows(spec_path)
     if flows:
-        flow_group = click.Group(
-            name="flow-run",
-            help="Run orchestrated workflow pipelines",
-            short_help="运行编排流水线",
-        )
+        from cliyard.engine.builder import build_flow_command
+
+        flow_group = click.Group(name="flow", help="List and run orchestrated workflow pipelines")
+
+        @flow_group.command(name="list")
+        def _list_flows():
+            """List available flow orchestrations."""
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            table = Table(box=None, show_header=False, padding=(0, 2))
+            for f in flows:
+                desc = f.description or ""
+                table.add_row(f.command, desc)
+            console.print(table)
+
+        run_group = click.Group(name="run", help="Run a flow orchestration")
         for flow_spec in flows:
             flow_cmd = build_flow_command(flow_spec, base_ctx, service)
-            flow_group.add_command(flow_cmd)
+            run_group.add_command(flow_cmd)
+
+        flow_group.add_command(run_group)
         cli.add_command(flow_group)
 
     return cli

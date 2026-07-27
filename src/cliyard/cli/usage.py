@@ -58,7 +58,7 @@ def generate() -> str:
     P("| `auth rm` | Remove profile |")
     P("| `auth status` | Show current profile |")
     P("| `<resource> <method>` | Dynamic commands from YAML specs |")
-    P("| `flow-run <flow>` | Run orchestrated workflow |")
+    P("| `flow run <flow>` | Run orchestrated workflow |")
     P("")
 
     # ══════════════════════════════════════════════════════════════════════
