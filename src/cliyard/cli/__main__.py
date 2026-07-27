@@ -21,7 +21,7 @@ def _intercept_spec_dir() -> None:
 
     # Skip interception for native cliyard commands
     for arg in sys.argv[1:]:
-        if not arg.startswith("-") and arg in ("auth", "gen", "init", "run"):
+        if not arg.startswith("-") and arg in ("auth", "gen", "init", "run", "usage"):
             return
         if arg.startswith("-"):
             continue
@@ -64,6 +64,10 @@ def init():
 from cliyard.cli.gen import gen
 
 cli.add_command(gen)
+
+from cliyard.cli.usage import usage
+
+cli.add_command(usage)
 
 
 @cli.command()
