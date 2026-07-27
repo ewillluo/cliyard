@@ -254,8 +254,7 @@ flows:
         use: app.list
 """
         )
-        with pytest.raises(ValueError, match="command"):
-            load_flows(tmp_path)
+        assert load_flows(tmp_path) == []
 
     def test_flows_with_for_each(self, tmp_path):
         flows_yaml = tmp_path / "_flows.yaml"
@@ -338,8 +337,7 @@ flows:
     command: deploy
 """
         )
-        with pytest.raises(ValueError, match="non-empty 'steps'"):
-            load_flows(tmp_path)
+        assert load_flows(tmp_path) == []
 
 
 # ---------------------------------------------------------------------------

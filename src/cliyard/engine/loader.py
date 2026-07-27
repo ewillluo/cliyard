@@ -154,86 +154,74 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
 def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
     """Load flow definitions from a spec directory.
 
-    Discovers flows from two sources (merged in order):
+    Two sources are merged by flow name:
 
-    1. ``_flows.yaml`` — registry format with a ``flows:`` key containing
-       multiple flow definitions.  Suitable for defining related flows.
-    2. ``_flow_<name>.yaml`` — individual flow files, one per file.
-       Each file defines a single flow directly (no ``flows:`` wrapper).
+    1. ``_flows.yaml`` — registry with a ``flows:`` key.  Each entry provides
+       **metadata** (``command``, ``description``, ``params``).  Steps are
+       optional — if omitted they are loaded from ``_flow_<name>.yaml``.
+
+    2. ``_flow_<name>.yaml`` — individual flow files.  Each provides
+       **steps** (and optionally overrides metadata).
+
+    Merge logic
+    -----------
+    Metadata from ``_flows.yaml`` takes precedence over ``_flow_<name>.yaml``
+    for ``command``, ``description``, ``params``.  Steps from
+    ``_flow_<name>.yaml`` are always used (if present).  A flow is valid if
+    either source provides ``command`` + ``steps``.
 
     Returns an empty list if no flow files are found.
-
-    Args:
-        spec_dir: Path to the service spec directory.
-
-    Returns:
-        List of :class:`FlowSpec` instances.
     """
     spec_dir = Path(spec_dir)
-    flows: list[FlowSpec] = []
 
-    # Source 1: _flows.yaml (multi-flow registry format)
+    # Pass 1: collect metadata from _flows.yaml
+    metadata: dict[str, dict] = {}
     flows_path = spec_dir / "_flows.yaml"
     if flows_path.exists():
         raw = _load_yaml(flows_path)
-        flows_raw = raw.get("flows") or {}
-        for flow_name, flow_dict in flows_raw.items():
-            if not isinstance(flow_dict, dict):
-                continue
-            flow = _build_flow_spec(flow_name, flow_dict, flows_path)
-            if flow:
-                flows.append(flow)
+        for fname, fdict in (raw.get("flows") or {}).items():
+            if isinstance(fdict, dict):
+                metadata[fname] = fdict
 
-    # Source 2: _flow_<name>.yaml (individual flow files)
+    # Pass 2: collect steps from _flow_<name>.yaml
+    steps_data: dict[str, dict] = {}
     for yaml_file in sorted(spec_dir.glob("_flow_*.yaml")):
         if yaml_file.name == "_flows.yaml":
-            continue  # already handled above
+            continue
+        fname = yaml_file.stem.replace("_flow_", "", 1)
         raw = _load_yaml(yaml_file)
-        # Support both direct flow and {flows: {name: ...}} wrapping
-        if "flows" in raw:
-            for flow_name, flow_dict in raw["flows"].items():
-                flow = _build_flow_spec(flow_name, flow_dict, yaml_file)
-                if flow:
-                    flows.append(flow)
-        else:
-            # Direct flow definition — use filename stem as fallback name
-            flow_name = yaml_file.stem.replace("_flow_", "", 1)
-            flow = _build_flow_spec(flow_name, raw, yaml_file)
-            if flow:
-                flows.append(flow)
+        steps_data[fname] = {
+            k: raw[k]
+            for k in ("steps", "command", "description", "params", "hooks")
+            if k in raw
+        }
+
+    # Merge: metadata (from _flows.yaml) + steps (from _flow_<name>.yaml)
+    all_names = set(metadata) | set(steps_data)
+    flows: list[FlowSpec] = []
+
+    for fname in sorted(all_names):
+        merged = dict(metadata.get(fname, {}))
+        merged.update(steps_data.get(fname, {}))
+
+        if "command" not in merged:
+            continue
+        if not merged.get("steps"):
+            continue
+
+        steps = [
+            _parse_flow_step(sd, flows_path)
+            for sd in merged["steps"]
+        ]
+        flows.append(FlowSpec(
+            command=merged["command"],
+            description=merged.get("description", ""),
+            params=merged.get("params", {}),
+            steps=steps,
+            hooks=merged.get("hooks"),
+        ))
 
     return flows
-
-
-def _build_flow_spec(
-    flow_name: str,
-    flow_dict: dict,
-    source_path: Path,
-) -> FlowSpec | None:
-    """Build a FlowSpec from a parsed YAML dict.
-
-    Returns ``None`` if required fields are missing.
-    """
-    if "command" not in flow_dict:
-        raise ValueError(
-            f"{source_path}: Flow '{flow_name}' must have a 'command' field"
-        )
-
-    steps_raw = flow_dict.get("steps", [])
-    if not steps_raw:
-        raise ValueError(
-            f"{source_path}: Flow '{flow_name}' must have non-empty 'steps'"
-        )
-
-    steps = [_parse_flow_step(step_dict, source_path) for step_dict in steps_raw]
-
-    return FlowSpec(
-        command=flow_dict["command"],
-        description=flow_dict.get("description", ""),
-        params=flow_dict.get("params", {}),
-        steps=steps,
-        hooks=flow_dict.get("hooks"),
-    )
 
 
 # ---------------------------------------------------------------------------
