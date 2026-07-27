@@ -1,0 +1,5 @@
+# Step definitions for hook_demo flow.
+steps:
+  - id: list_pets
+    description: 列出宠物
+    use: pet.list

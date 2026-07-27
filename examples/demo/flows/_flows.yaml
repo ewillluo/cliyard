@@ -1,0 +1,38 @@
+# =============================================================================
+# _flows.yaml — Flow orchestration index for Pet Store Demo
+#
+# Registration metadata only. Step definitions in separate _flow_*.yaml files.
+# =============================================================================
+
+flows:
+  add_user:
+    description: 新增用户（查→判→创→验）
+    command: add-user
+    steps: _flow_add_user.yaml
+    params:
+      query:
+        - name: name
+          type: string
+          required: true
+          description: 用户名
+        - name: phone
+          type: string
+          description: 手机号
+
+  retry_demo:
+    description: 演示重试机制
+    command: retry-demo
+    steps: _flow_retry_demo.yaml
+
+  plugin_demo:
+    description: 演示插件步骤
+    command: plugin-demo
+    steps: _flow_plugin_demo.yaml
+
+  hook_demo:
+    description: 演示生命周期钩子
+    command: hook-demo
+    hooks:
+      on_start: [notify_start]
+      on_end: [notify_end]
+    steps: _flow_hook_demo.yaml

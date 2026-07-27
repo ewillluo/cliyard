@@ -1,0 +1,30 @@
+# Step definitions for add_user flow.
+steps:
+  - id: check_user
+    description: 查询用户是否存在
+    use: user.list
+    params:
+      name: '{{ flow.name }}'
+    extract:
+      found_users: $.users
+
+  - id: decision
+    on_result:
+      - if: '{{ step.check_user.found_users | length > 0 }}'
+        then:
+          - type: echo
+            message: "用户 {{ flow.name }} 已存在，跳过"
+          - action: return
+
+  - id: create_user
+    description: 创建用户
+    use: user.create
+    params:
+      name: '{{ flow.name }}'
+      phone: '{{ flow.phone | default("") }}'
+
+  - id: verify_user
+    description: 验证用户已创建
+    use: user.list
+    params:
+      name: '{{ flow.name }}'

@@ -1,0 +1,10 @@
+# Step definitions for retry_demo flow.
+steps:
+  - id: fetch_data
+    description: 获取数据（可重试）
+    use: pet.list
+    retry:
+      max_attempts: 3
+      delay: 1
+    params:
+      status: '{{ flow.status | default("available") }}'

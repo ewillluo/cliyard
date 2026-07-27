@@ -1,0 +1,11 @@
+# Step definitions for plugin_demo flow.
+steps:
+  - id: custom_step
+    description: 执行自定义插件步骤
+    type: plugin:my_step
+    params:
+      input: hello
+
+  - id: list_pets
+    description: 列出宠物
+    use: pet.list
