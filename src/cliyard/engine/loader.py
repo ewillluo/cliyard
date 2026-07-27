@@ -154,71 +154,52 @@ def load_resource(yaml_path: str | Path) -> dict[str, Any]:
 def load_flows(spec_dir: str | Path) -> list[FlowSpec]:
     """Load flow definitions from a spec directory.
 
-    Two sources are merged by flow name:
+    Reads ``_flows.yaml`` and, for each flow, loads steps from the
+    file referenced by the ``from:`` field.  Returns an empty list
+    if ``_flows.yaml`` does not exist.
 
-    1. ``_flows.yaml`` — registry with a ``flows:`` key.  Each entry provides
-       **metadata** (``command``, ``description``, ``params``).  Steps are
-       optional — if omitted they are loaded from ``_flow_<name>.yaml``.
-
-    2. ``_flow_<name>.yaml`` — individual flow files.  Each provides
-       **steps** (and optionally overrides metadata).
-
-    Merge logic
-    -----------
-    Metadata from ``_flows.yaml`` takes precedence over ``_flow_<name>.yaml``
-    for ``command``, ``description``, ``params``.  Steps from
-    ``_flow_<name>.yaml`` are always used (if present).  A flow is valid if
-    either source provides ``command`` + ``steps``.
-
-    Returns an empty list if no flow files are found.
+    A flow is valid only when it has both a ``command`` field
+    (metadata) and ``steps`` (from the external file).
     """
     spec_dir = Path(spec_dir)
-
-    # Pass 1: collect metadata from _flows.yaml
-    metadata: dict[str, dict] = {}
     flows_path = spec_dir / "_flows.yaml"
-    if flows_path.exists():
-        raw = _load_yaml(flows_path)
-        for fname, fdict in (raw.get("flows") or {}).items():
-            if isinstance(fdict, dict):
-                metadata[fname] = fdict
 
-    # Pass 2: collect steps from _flow_<name>.yaml
-    steps_data: dict[str, dict] = {}
-    for yaml_file in sorted(spec_dir.glob("_flow_*.yaml")):
-        if yaml_file.name == "_flows.yaml":
-            continue
-        fname = yaml_file.stem.replace("_flow_", "", 1)
-        raw = _load_yaml(yaml_file)
-        steps_data[fname] = {
-            k: raw[k]
-            for k in ("steps", "command", "description", "params", "hooks")
-            if k in raw
-        }
+    if not flows_path.exists():
+        return []
 
-    # Merge: metadata (from _flows.yaml) + steps (from _flow_<name>.yaml)
-    all_names = set(metadata) | set(steps_data)
+    raw = _load_yaml(flows_path)
+    raw_flows = raw.get("flows") or {}
+
     flows: list[FlowSpec] = []
-
-    for fname in sorted(all_names):
-        merged = dict(metadata.get(fname, {}))
-        merged.update(steps_data.get(fname, {}))
-
-        if "command" not in merged:
+    for fname, fdict in raw_flows.items():
+        if not isinstance(fdict, dict):
             continue
-        if not merged.get("steps"):
+        if "command" not in fdict:
             continue
 
-        steps = [
-            _parse_flow_step(sd, flows_path)
-            for sd in merged["steps"]
-        ]
+        # Load steps from the referenced file
+        steps: list = []
+        steps_file = fdict.get("from")
+        if steps_file:
+            steps_path = (spec_dir / steps_file).resolve()
+            if steps_path.is_file():
+                steps_raw = _load_yaml(steps_path)
+                steps_raw_list = steps_raw.get("steps", []) if isinstance(steps_raw, dict) else []
+                steps = [_parse_flow_step(s, steps_path) for s in steps_raw_list]
+        else:
+            # Inline steps (backward compatibility)
+            steps_raw_list = fdict.get("steps", [])
+            steps = [_parse_flow_step(s, flows_path) for s in steps_raw_list]
+
+        if not steps:
+            continue
+
         flows.append(FlowSpec(
-            command=merged["command"],
-            description=merged.get("description", ""),
-            params=merged.get("params", {}),
+            command=fdict["command"],
+            description=fdict.get("description", ""),
+            params=fdict.get("params", {}),
             steps=steps,
-            hooks=merged.get("hooks"),
+            hooks=fdict.get("hooks"),
         ))
 
     return flows
