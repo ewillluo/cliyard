@@ -68,10 +68,11 @@ See the [examples/](examples/) directory for ready-to-use spec sets:
 python3 -c "from cliyard.runtime import create_cli; create_cli('examples/demo')()"
 
 # Flow orchestration
-petstore flow-run add-user --name 张三
-petstore flow-run retry-demo
-petstore flow-run plugin-demo
-petstore flow-run hook-demo
+petstore flow list
+petstore flow run add-user --name 张三
+petstore flow run retry-demo
+petstore flow run plugin-demo
+petstore flow run hook-demo
 ```
 
 ## Documentation
