@@ -50,7 +50,7 @@ class HttpClient:
                 files=files,
             )
         else:
-            send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH")
+            send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH", "DELETE")
             if send_json and "Content-Type" not in merged_headers:
                 merged_headers["Content-Type"] = "application/json"
             if not url.startswith("http"):
@@ -111,7 +111,7 @@ def request(
             timeout=timeout,
         )
     else:
-        send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH")
+        send_json = isinstance(data, (dict, list)) and method.upper() in ("POST", "PUT", "PATCH", "DELETE")
         if send_json and "Content-Type" not in merged_headers:
             merged_headers["Content-Type"] = "application/json"
 
