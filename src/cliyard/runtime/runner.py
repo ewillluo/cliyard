@@ -108,6 +108,7 @@ def create_cli(
     servers: dict[str, Any] = service.get("servers", {})
     default_server_name: str = service.get("_default_server", "")
     auth_spec: dict[str, Any] | None = service.get("auth")
+    service_id: str = auth_spec.get("id", service_name) if auth_spec else service_name
 
     # Get the default server config (base_url may come from saved credentials)
     default_server: dict[str, Any] = {}
@@ -117,7 +118,7 @@ def create_cli(
     # Resolve base_url: runtime override > saved profile > default (no hard YAML base_url required)
     runtime_override = _resolve_base_url_override(service_name, base_url_override)
     from cliyard.client.credentials import get_current_profile
-    saved_profile = get_current_profile()
+    saved_profile = get_current_profile(service=service_id)
     saved_endpoints: dict[str, str] = saved_profile.get("endpoints", {}) if saved_profile else {}
     saved_endpoint = saved_profile.get("endpoint") if saved_profile else None
     base_url = runtime_override or saved_endpoint or default_server.get("base_url", "http://localhost:8080")
@@ -131,7 +132,6 @@ def create_cli(
     if auth_spec and auth_spec.get("persist"):
         from cliyard.client.credentials import get_service_credentials
 
-        service_id: str = auth_spec.get("id", service_name)
         saved = get_service_credentials(service_id)
         if saved:
             persist = auth_spec.get("persist", {})
@@ -189,7 +189,7 @@ def create_cli(
         version_option(version=version, prog_name=service_name)(cli)
 
     from cliyard.runtime.auth_commands import add_auth_commands
-    add_auth_commands(cli, service)
+    add_auth_commands(cli, service, service_id=service_id)
 
     # Group resources by their "group" field for nesting
     # Supports dot-separated paths: "asset.logcluster" → asset → logcluster

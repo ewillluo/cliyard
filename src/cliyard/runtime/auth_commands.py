@@ -10,11 +10,11 @@ from rich.table import Table
 
 from cliyard.client.auth import run_auth_chain
 from cliyard.client.credentials import (
-    save_profile,
-    get_profile,
-    get_current_profile,
-    load_credentials,
+    clear_service_credentials,
     delete_profile,
+    get_current_profile,
+    list_profiles,
+    save_profile,
     switch_profile,
 )
 from cliyard.client.http import HttpClient
@@ -22,8 +22,19 @@ from cliyard.client.http import HttpClient
 _console = Console()
 
 
-def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> None:
-    """Register auth command group on a CLI group."""
+def add_auth_commands(
+    cli: click.Group,
+    service: dict,
+    base_url: str = "",
+    service_id: str | None = None,
+) -> None:
+    """Register auth command group on a CLI group.
+
+    Credentials are namespaced by *service_id* so each cliyard-based CLI
+    only reads/writes its own profiles.
+    """
+    auth_spec = service.get("auth") or {}
+    svc: str = service_id or auth_spec.get("id") or service.get("name", "default")
 
     @cli.group()
     def auth():
@@ -88,7 +99,8 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
             if server_endpoints:
                 fields["endpoints"] = server_endpoints
             save_profile(profile_name, fields,
-                         set_current=set_default or not get_current_profile())
+                         set_current=set_default or not get_current_profile(service=svc),
+                         service=svc)
             _console.print(f"[green]Token saved for '{profile_name}'[/green]")
             return
 
@@ -129,7 +141,9 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
                 elif dft is not None:
                     fields[fn] = dft
             if fields:
-                save_profile(profile_name, fields, set_current=set_default or not get_current_profile())
+                save_profile(profile_name, fields,
+                             set_current=set_default or not get_current_profile(service=svc),
+                             service=svc)
                 _console.print(f"[green]Credentials saved for '{profile_name}'[/green]")
             else:
                 _console.print("[yellow]No credentials to save.[/yellow]")
@@ -144,9 +158,9 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
 
     @auth.command("status")
     def auth_status():
-        creds = load_credentials()
-        profiles = creds.get("profiles", {})
-        current = creds.get("current")
+        profiles = list_profiles(svc)
+        current = get_current_profile(service=svc)
+        current_name = current.get("_name") if current else None
         if not profiles:
             _console.print("[yellow]No environments configured.[/yellow]")
             return
@@ -154,7 +168,7 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
         for col in ("Environment", "Endpoint", "Token", "Expires"):
             table.add_column(col)
         for nm, flds in profiles.items():
-            m = "* " if nm == current else "  "
+            m = "* " if nm == current_name else "  "
             ep = flds.get("endpoint", "-")
             tk = (flds.get("token", "")[:20] + "...") if flds.get("token") else "-"
             exp = flds.get("expires_at")
@@ -166,13 +180,13 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
     @click.argument("env_name", required=False)
     def auth_switch(env_name):
         if not env_name:
-            cur = get_current_profile()
+            cur = get_current_profile(service=svc)
             if cur:
                 _console.print(f"[bold]{cur.get('_name', '?')}[/bold]")
             else:
                 _console.print("[yellow]No default set.[/yellow]")
             return
-        if switch_profile(env_name):
+        if switch_profile(env_name, service=svc):
             _console.print(f"[green]Switched to '{env_name}'[/green]")
         else:
             _console.print(f"[red]Not found: {env_name}[/red]")
@@ -182,14 +196,12 @@ def add_auth_commands(cli: click.Group, service: dict, base_url: str = "") -> No
     @click.option("--all", "clear_all", is_flag=True)
     def auth_rm(env_name, clear_all):
         if env_name:
-            delete_profile(env_name)
+            delete_profile(env_name, service=svc)
             _console.print(f"[green]Removed: {env_name}[/green]")
         elif clear_all:
-            p = os.path.expanduser("~/.cliyard/credentials.yaml")
-            if os.path.exists(p):
-                os.remove(p)
-                _console.print("[green]All cleared.[/green]")
+            clear_service_credentials(svc)
+            _console.print("[green]All cleared.[/green]")
         else:
-            cur = get_current_profile()
+            cur = get_current_profile(service=svc)
             if cur:
                 _console.print(f"Current: {cur.get('_name', '?')}")

@@ -6,7 +6,6 @@ Provides ``cliyard auth login``, ``cliyard auth status``, and
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
@@ -116,34 +115,41 @@ def auth_login(spec_dir: str) -> None:
 @auth_group.command(name="status")
 def auth_status() -> None:
     """Show saved authentication status."""
-    from cliyard.client.credentials import load_credentials
+    from cliyard.client.credentials import list_services
 
     console = Console()
-    creds = load_credentials()
-    services = creds.get("services", {})
+    services = list_services()
     if not services:
         console.print("[yellow]No credentials saved.[/yellow]")
         return
 
     table = Table()
     table.add_column("Service")
+    table.add_column("Profile")
     table.add_column("Fields")
     table.add_column("Expires")
 
-    for svc_id, fields in services.items():
-        field_names = [k for k in fields.keys() if k != "expires_at"]
-        expires_at = fields.get("expires_at")
-        if expires_at:
-            remaining = int(expires_at) - int(time.time())
-            if remaining > 0:
-                hours = remaining // 3600
-                minutes = (remaining % 3600) // 60
-                expiry = f"{hours}h {minutes}m remaining"
+    for svc_id, block in services.items():
+        profiles = block.get("profiles", {}) or {}
+        current = block.get("current")
+        if not profiles:
+            table.add_row(svc_id, "-", "-", "-")
+            continue
+        for pname, fields in profiles.items():
+            marker = "* " if pname == current else "  "
+            field_names = [k for k in fields.keys() if k != "expires_at"]
+            expires_at = fields.get("expires_at")
+            if expires_at:
+                remaining = int(expires_at) - int(time.time())
+                if remaining > 0:
+                    hours = remaining // 3600
+                    minutes = (remaining % 3600) // 60
+                    expiry = f"{hours}h {minutes}m remaining"
+                else:
+                    expiry = "[red]EXPIRED[/red]"
             else:
-                expiry = "[red]EXPIRED[/red]"
-        else:
-            expiry = "never"
-        table.add_row(svc_id, ", ".join(field_names), expiry)
+                expiry = "never"
+            table.add_row(svc_id, f"{marker}{pname}", ", ".join(field_names), expiry)
 
     console.print(table)
 
@@ -159,9 +165,7 @@ def auth_logout(service: str | None) -> None:
         clear_service_credentials(service)
         console.print(f"[green]Credentials cleared for '{service}'[/green]")
     else:
-        creds_path = os.path.expanduser("~/.cliyard/credentials.yaml")
-        if os.path.exists(creds_path):
-            os.remove(creds_path)
-            console.print("[green]All credentials cleared.[/green]")
-        else:
-            console.print("[yellow]No credentials to clear.[/yellow]")
+        from cliyard.client.credentials import clear_all_credentials
+
+        clear_all_credentials()
+        console.print("[green]All credentials cleared.[/green]")
