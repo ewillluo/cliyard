@@ -1,4 +1,56 @@
-from cliyard.engine.builder import ServiceContext, execute_pipeline
+import json
+
+import click.testing
+import yaml
+from unittest.mock import MagicMock
+
+from cliyard.engine.builder import ServiceContext, build_list_command, execute_pipeline
+
+LONG_URL = "http://jenkins.ketaops.cc/job/issue%20%E7%BB%9F%E8%AE%A1%E6%95%B4%E7%90%86/"
+
+
+def _mock_http_request(self_obj, method, url, data=None, query_params=None, headers=None, timeout=None, files=None):
+    resp = MagicMock()
+    resp.json.return_value = {
+        "items": [{"name": "issue 统计整理", "url": LONG_URL, "color": "blue"}],
+        "total": 1,
+    }
+    resp.status_code = 200
+    resp.text = ""
+    return resp
+
+
+def _run_format(monkeypatch, fmt):
+    monkeypatch.setenv("COLUMNS", "40")
+    monkeypatch.setattr("cliyard.client.http.HttpClient.request", _mock_http_request)
+    spec = {
+        "name": "jobs",
+        "path": "jobs",
+        "methods": {"list": {"http": {"method": "GET"}, "output": {"items_path": "$.items"}}},
+    }
+    cmd = build_list_command(spec, ServiceContext(base_url="http://test.local"))
+    return click.testing.CliRunner().invoke(cmd, ["--format", fmt])
+
+
+def test_json_output_not_wrapped_in_narrow_terminal(monkeypatch):
+    result = _run_format(monkeypatch, "json")
+    assert result.exit_code == 0
+    assert LONG_URL in result.output
+    assert json.loads(result.output)["items"][0]["url"] == LONG_URL
+
+
+def test_yaml_output_not_wrapped_in_narrow_terminal(monkeypatch):
+    result = _run_format(monkeypatch, "yaml")
+    assert result.exit_code == 0
+    assert LONG_URL in result.output
+    assert yaml.safe_load(result.output)["items"][0]["url"] == LONG_URL
+
+
+def test_csv_output_not_wrapped_in_narrow_terminal(monkeypatch):
+    result = _run_format(monkeypatch, "csv")
+    assert result.exit_code == 0
+    assert LONG_URL in result.output
+    assert result.output.splitlines()[0] == "name,url,color"
 
 
 class _FakeResponse:
