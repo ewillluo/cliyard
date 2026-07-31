@@ -24,7 +24,10 @@ def _no_saved_profile(monkeypatch):
     monkeypatch.delenv("CLIYARD_SERVER", raising=False)
     monkeypatch.delenv("TEST_SERVICE_SERVER", raising=False)
     monkeypatch.delenv("TEST_SERVICE_SERVER", raising=False)
-    monkeypatch.setattr("cliyard.client.credentials.get_current_profile", lambda: None)
+    monkeypatch.setattr(
+        "cliyard.client.credentials.get_current_profile",
+        lambda service=None: None,
+    )
     yield
 
 
