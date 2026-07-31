@@ -165,6 +165,24 @@ def create_cli(
 
     cli = click.Group(name=service_name, help=description)
 
+    # Runtime --server/-s override: parsed natively by Click so it shows in
+    # --help and works without any entry-point wiring in downstream CLIs.
+    cli.params.append(
+        click.Option(
+            ["--server", "-s"],
+            default=None,
+            metavar="URL",
+            help="Override server base URL (default: $CLIYARD_SERVER or spec base_url)",
+        )
+    )
+
+    @click.pass_context
+    def _root_callback(ctx: click.Context, server: str | None) -> None:
+        if server:
+            ctx.ensure_object(dict)["server"] = server
+
+    cli.callback = _root_callback
+
     # Add --version if version is provided
     if version:
         from click.decorators import version_option
@@ -318,10 +336,7 @@ def run_with_spec(spec_dir: str) -> NoReturn:
         >>> sys.exit(run_with_spec("tests/fixtures/spec-dir"))
     """
     try:
-        argv, server = extract_server_override(sys.argv[1:])
-        if argv != sys.argv[1:]:
-            sys.argv = [sys.argv[0]] + argv
-        cli = create_cli(spec_dir, base_url_override=server)
+        cli = create_cli(spec_dir)
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

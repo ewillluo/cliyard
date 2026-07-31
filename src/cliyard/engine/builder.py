@@ -282,6 +282,7 @@ def execute_pipeline(
     resource_name: str = "",
     http_client: Any = None,
     raw_response: bool = False,
+    base_url_override: str | None = None,
 ) -> dict[str, Any] | str:
     """Execute the full request pipeline and return response data.
 
@@ -341,7 +342,7 @@ def execute_pipeline(
                 _fn_name = _resolver_name[7:]
                 _fn = _Reg.get_field_resolver(_fn_name)
                 if _fn:
-                    _cli = HttpClient(service_ctx.base_url)
+                    _cli = HttpClient(base_url_override or service_ctx.base_url)
                     if service_ctx.auth_spec:
                         run_auth_chain(
                             service_ctx.auth_spec,
@@ -365,8 +366,9 @@ def execute_pipeline(
 
     # Auth chain (skip if a pre-configured client was provided)
     if http_client is None:
+        _base = base_url_override or service_ctx.base_url
         if service_ctx.auth_spec:
-            client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
+            client = HttpClient(_base, timeout=service_ctx.timeout)
             run_auth_chain(
                 service_ctx.auth_spec,
                 http_client=client,
@@ -378,12 +380,12 @@ def execute_pipeline(
                     merged_params["header"].update(client.default_headers)
             http_client = client
         else:
-            http_client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
+            http_client = HttpClient(_base, timeout=service_ctx.timeout)
 
     req = assemble_request(
         method_spec,
         merged_params,
-        base_url=service_ctx.base_url,
+        base_url=base_url_override or service_ctx.base_url,
         prefix=service_ctx.prefix,
     )
 
@@ -463,7 +465,8 @@ def _make_callback(
         2. Format output for display (table / json / csv)
     """
 
-    def callback(**kwargs: Any) -> None:
+    @click.pass_context
+    def callback(ctx: click.Context, **kwargs: Any) -> None:
         from cliyard.engine.errors import CliyError
         from rich.console import Console
 
@@ -473,8 +476,18 @@ def _make_callback(
             # Extract built-in options (--format) before validation
             output_format: str = kwargs.pop("format", "") or _resolve_default_format(method_spec, service_ctx)
 
+            # Runtime --server override from the top-level group (ctx.obj)
+            _server = (ctx.find_root().obj or {}).get("server")
+
             # Run shared pipeline
-            data = execute_pipeline(kwargs, method_spec, resource_spec, service_ctx, resource_name)
+            data = execute_pipeline(
+                kwargs,
+                method_spec,
+                resource_spec,
+                service_ctx,
+                resource_name,
+                base_url_override=_server,
+            )
 
             # Skip output formatting for file downloads
             if isinstance(data, dict) and data.get("_downloaded"):
@@ -620,7 +633,7 @@ def build_operation_command(
 def _make_plugin_callback(
     plugin_name: str,
     method_spec: dict[str, Any],
-    ctx: ServiceContext,
+    service_ctx: ServiceContext,
 ) -> Callable[..., None]:
     """Create a callback that runs a registered plugin method."""
     from rich.console import Console
@@ -634,7 +647,8 @@ def _make_plugin_callback(
 
     console = Console()
 
-    def callback(**kwargs: Any) -> None:
+    @click.pass_context
+    def callback(ctx: click.Context, **kwargs: Any) -> None:
         discover_plugins()
         plugin_fn = PluginRegistry.get_method(plugin_name)
         if not plugin_fn:
@@ -651,10 +665,11 @@ def _make_plugin_callback(
             merged.update(getattr(validated, "body"))
             merged.update(getattr(validated, "argument"))
 
-            client = HttpClient(ctx.base_url, timeout=ctx.timeout)
-            if ctx.auth_spec:
-                run_auth_chain(ctx.auth_spec, http_client=client,
-                               pre_filled=ctx.pre_filled_auth)
+            _server = (ctx.find_root().obj or {}).get("server")
+            client = HttpClient(_server or service_ctx.base_url, timeout=service_ctx.timeout)
+            if service_ctx.auth_spec:
+                run_auth_chain(service_ctx.auth_spec, http_client=client,
+                               pre_filled=service_ctx.pre_filled_auth)
 
             config = method_spec.get("config", {})
             result = plugin_fn(params=merged, http_client=client, config=config)
@@ -718,7 +733,7 @@ def build_resource_group(
 
 def build_flow_command(
     flow_spec: FlowSpec,
-    ctx: ServiceContext,
+    service_ctx: ServiceContext,
     service_spec: dict | None = None,
 ) -> click.Command:
     """Build a Click command from a FlowSpec for command orchestration.
@@ -743,9 +758,10 @@ def build_flow_command(
         for param in params_spec.get(_loc, []):
             click_params.append(_param_to_option(param))
 
-    click_params.append(_build_format_option({}, ctx))
+    click_params.append(_build_format_option({}, service_ctx))
 
-    def callback(**kwargs: Any) -> None:
+    @click.pass_context
+    def callback(ctx: click.Context, **kwargs: Any) -> None:
         from cliyard.engine.errors import CliyError
         from rich.console import Console
 
@@ -754,7 +770,8 @@ def build_flow_command(
         try:
             from cliyard.engine.orchestrator import run_flow
 
-            run_flow(flow_spec, kwargs, ctx, service_spec or {})
+            _server = (ctx.find_root().obj or {}).get("server")
+            run_flow(flow_spec, kwargs, service_ctx, service_spec or {}, server_override=_server)
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
         except Exception as e:

@@ -53,6 +53,7 @@ class FlowContext:
     service_spec: dict = field(default_factory=dict)
     base_url: str = ""
     prefix: str = ""
+    server_override: str = ""
     pre_filled_auth: dict | None = None
     _flow_aborted: bool = False
     _flow_skipped: bool = False
@@ -229,6 +230,9 @@ def execute_use_step(
         if srv:
             base_url = srv.get("base_url", base_url)
             prefix = srv.get("prefix", prefix)
+    # Runtime --server override takes precedence over everything
+    if context.server_override:
+        base_url = context.server_override
 
     step_ctx = ServiceContext(
         base_url=base_url,
@@ -931,6 +935,7 @@ def run_flow(
     flow_params: dict,
     service_ctx,
     service_spec: dict,
+    server_override: str | None = None,
 ) -> None:
     """Execute a flow definition sequentially.
 
@@ -962,7 +967,8 @@ def run_flow(
     console = Console()
 
     # Create shared HTTP client
-    client = HttpClient(service_ctx.base_url, timeout=service_ctx.timeout)
+    _base = server_override or service_ctx.base_url
+    client = HttpClient(_base, timeout=service_ctx.timeout)
 
     # Run auth chain if configured
     if service_ctx.auth_spec:
@@ -979,8 +985,9 @@ def run_flow(
         http_client=client,
         console=console,
         service_spec=service_spec,
-        base_url=service_ctx.base_url,
+        base_url=_base,
         prefix=service_ctx.prefix,
+        server_override=server_override or "",
         pre_filled_auth=service_ctx.pre_filled_auth,
         _current_flow=flow_spec,
     )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import click.testing
 import pytest
@@ -154,16 +154,6 @@ class TestCreateCliOverride:
 
 
 class TestRunWithSpecServerFlag:
-    def test_server_flag_passed_to_create_cli(self, monkeypatch, http_mock):
-        monkeypatch.setattr(sys, "argv", ["mycli", "--server", "http://flag.example.com", "repos", "list"])
-        with patch("cliyard.runtime.runner.create_cli") as mock_create:
-            mock_create.return_value = _build_group()
-            with pytest.raises(SystemExit):
-                run_with_spec(FIXTURES_DIR)
-        _, kwargs = mock_create.call_args
-        assert kwargs["base_url_override"] == "http://flag.example.com"
-        assert sys.argv == ["mycli", "repos", "list"]
-
     def test_server_flag_end_to_end(self, monkeypatch, http_mock):
         monkeypatch.setattr(sys, "argv", ["mycli", "--server", "http://flag.example.com", "repos", "list"])
         with pytest.raises(SystemExit) as exc_info:
@@ -172,15 +162,55 @@ class TestRunWithSpecServerFlag:
         assert http_mock == ["http://flag.example.com/repos"]
 
 
-def _build_group():
-    from cliyard.engine.builder import build_resource_group
-    from cliyard.engine.loader import load_resource
-
-    resource = load_resource("tests/fixtures/repos_resource.yaml")
-    return build_resource_group(resource["name"], resource, _ctx_for_test())
+# ---------------------------------------------------------------------------
+# Top-level --server option (native Click, visible in --help)
+# ---------------------------------------------------------------------------
 
 
-def _ctx_for_test():
-    from cliyard.engine.builder import ServiceContext
+class TestServerFlagVisible:
+    """The --server/-s option is registered on the top-level group, so it
+    shows in --help and works for downstream CLIs without entry-point wiring."""
 
-    return ServiceContext(base_url="http://localhost", prefix="", servers={})
+    def test_help_shows_server_option(self, http_mock):
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "--server" in result.output
+        assert "-s" in result.output
+
+    def test_server_flag_before_subcommand(self, http_mock):
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["--server", "http://flag.example.com", "repos", "list"])
+        assert result.exit_code == 0
+        assert http_mock == ["http://flag.example.com/repos"]
+
+    def test_short_flag(self, http_mock):
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["-s", "http://short.example.com", "repos", "list"])
+        assert result.exit_code == 0
+        assert http_mock == ["http://short.example.com/repos"]
+
+    def test_equals_form(self, http_mock):
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["--server=http://eq.example.com", "repos", "list"])
+        assert result.exit_code == 0
+        assert http_mock == ["http://eq.example.com/repos"]
+
+    def test_server_flag_beats_env(self, http_mock, monkeypatch):
+        monkeypatch.setenv("CLIYARD_SERVER", "http://env.example.com")
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["--server", "http://flag.example.com", "repos", "list"])
+        assert result.exit_code == 0
+        assert http_mock == ["http://flag.example.com/repos"]
+
+    def test_no_flag_uses_spec_url(self, http_mock):
+        cli = create_cli(FIXTURES_DIR)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["repos", "list"])
+        assert result.exit_code == 0
+        assert http_mock == ["https://httpbin.org/repos"]
