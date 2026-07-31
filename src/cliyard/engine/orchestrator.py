@@ -964,7 +964,7 @@ def run_flow(
     from cliyard.client.auth import run_auth_chain
     from cliyard.client.http import HttpClient
 
-    console = Console()
+    console = Console(soft_wrap=True)
 
     # Create shared HTTP client
     _base = server_override or service_ctx.base_url

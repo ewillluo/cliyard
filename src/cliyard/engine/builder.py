@@ -470,7 +470,10 @@ def _make_callback(
         from cliyard.engine.errors import CliyError
         from rich.console import Console
 
-        console = Console()
+        # soft_wrap=True: never hard-wrap long lines. json/yaml/csv output
+        # must stay byte-exact even when it exceeds the terminal width
+        # (rich would otherwise fold it and corrupt machine-consumable output).
+        console = Console(soft_wrap=True)
 
         try:
             # Extract built-in options (--format) before validation
@@ -645,7 +648,7 @@ def _make_plugin_callback(
     from cliyard.plugin.discovery import discover_plugins
     import json
 
-    console = Console()
+    console = Console(soft_wrap=True)
 
     @click.pass_context
     def callback(ctx: click.Context, **kwargs: Any) -> None:
@@ -765,7 +768,7 @@ def build_flow_command(
         from cliyard.engine.errors import CliyError
         from rich.console import Console
 
-        console = Console()
+        console = Console(soft_wrap=True)
 
         try:
             from cliyard.engine.orchestrator import run_flow
