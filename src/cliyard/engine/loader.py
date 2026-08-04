@@ -64,6 +64,7 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
 
     # Load service config
     service = _load_yaml(service_path)
+    _render_server_templates(service)
 
     # Normalize server config: support both list (new) and dict (old) format
     server_raw = service.get("server", {})
@@ -250,6 +251,25 @@ def _resolve_steps(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _render_server_templates(service: dict[str, Any]) -> None:
+    """Render ``{{ env("VAR") }}`` templates in every server ``base_url``."""
+    from cliyard.engine.template import Template
+
+    server_raw = service.get("server", {})
+    entries: list[dict[str, Any]] = []
+    if isinstance(server_raw, list):
+        entries = [e for e in server_raw if isinstance(e, dict)]
+    elif isinstance(server_raw, dict):
+        entries = [server_raw]
+    for entry in entries:
+        raw_url = entry.get("base_url")
+        if isinstance(raw_url, str) and ("{{" in raw_url or "{%" in raw_url):
+            try:
+                entry["base_url"] = Template(raw_url).render()
+            except Exception:
+                pass
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

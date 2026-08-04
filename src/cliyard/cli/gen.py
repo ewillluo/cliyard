@@ -583,13 +583,26 @@ server:
 
     # 6. Copy spec files (skip if already in specs_dir)
     copied = 0
+    _SUBDIRS = ("resources", "flows")
     if spec_dir and spec_dir.resolve() != specs_dir.resolve():
         for yaml_file in sorted(spec_dir.glob("*.yaml")):
             dest = specs_dir / yaml_file.name
             shutil.copy2(yaml_file, dest)
             copied += 1
+        for subdir in _SUBDIRS:
+            sub_src = spec_dir / subdir
+            if sub_src.is_dir():
+                sub_dest = specs_dir / subdir
+                sub_dest.mkdir(parents=True, exist_ok=True)
+                for yaml_file in sorted(sub_src.glob("*.yaml")):
+                    shutil.copy2(yaml_file, sub_dest / yaml_file.name)
+                    copied += 1
     elif spec_dir and spec_dir.resolve() == specs_dir.resolve():
-        copied = len(list(spec_dir.glob("*.yaml")))  # Already in place
+        copied = len(list(spec_dir.glob("*.yaml")))
+        for subdir in _SUBDIRS:
+            sub = specs_dir / subdir
+            if sub.is_dir():
+                copied += len(list(sub.glob("*.yaml")))
     click.echo(f"✔ Copied {copied} spec file(s) to src/{pkg_name}/specs/")
 
     # 6b. Copy plugins directory if it exists

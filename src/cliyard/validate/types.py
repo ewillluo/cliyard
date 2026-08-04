@@ -47,7 +47,7 @@ def validate_field(field_spec: dict[str, Any], value: Any) -> Any:
 
     if field_type == "string":
         return _validate_string(field_spec, value)
-    elif field_type == "int":
+    elif field_type in ("int", "integer"):
         return _validate_int(field_spec, value)
     elif field_type == "float":
         return _validate_float(field_spec, value)

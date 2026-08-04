@@ -202,7 +202,7 @@ def generate() -> str:
     P("| Field | Constraints |")
     P("|-------|------------|")
     P("| `type: string` | `pattern`, `min_length`, `max_length` |")
-    P("| `type: int` | `min`, `max` |")
+    P("| `type: int` (or `integer`) | `min`, `max` |")
     P("| `type: float` | `min`, `max` |")
     P("| `multiple: true` | Allow `--tag a --tag b` → tuple |")
     P("| `depends_on` | `field: x, eq: v` → required when x=v |")
