@@ -62,6 +62,7 @@ def _map_param_type(type_str: str) -> type:
     """
     mapping: dict[str, type] = {
         "int": int,
+        "integer": int,
         "string": str,
         "str": str,
         "float": float,
@@ -169,7 +170,7 @@ def _param_to_argument(param: dict[str, Any]) -> click.Argument:
 
     kwargs: dict[str, Any] = {}
 
-    if type_str in ("int", "float"):
+    if type_str in ("int", "integer", "float"):
         kwargs["type"] = _map_param_type(type_str)
     else:
         kwargs["type"] = str
@@ -507,7 +508,10 @@ def _make_callback(
             items = data.get("items") if isinstance(data, dict) else None
 
             if items is not None and len(items) == 0:
-                console.print("[yellow]No results found.[/yellow]")
+                if output_format == "table":
+                    console.print("[yellow]No results found.[/yellow]")
+                else:
+                    console.print(_render_output(output_format, data, output_spec.get("fields", [])))
             elif items:
                 console.print(_render_output(output_format, data, output_spec.get("fields", [])))
             elif output_spec.get("items_path"):

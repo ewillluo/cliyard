@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
+
+import yaml
 
 from cliyard.engine.template import Template
 
@@ -76,6 +79,39 @@ def _render_value(value: Any, variables: dict[str, str]) -> Any:
         return [_render_value(item, variables) for item in value]
     else:
         return value
+
+
+def _parse_rendered_body(rendered: str) -> Any:
+    """Parse a rendered request_body string (block scalar) into a body dict.
+
+    ``request_body`` may be written as a YAML block scalar so Jinja
+    conditionals (``{% if %}``) survive the spec's YAML parse.  After
+    rendering, parse the result back into a mapping.  If the rendered text
+    is not valid YAML or does not parse to a mapping, keep it as a literal
+    string and warn so template mistakes are visible instead of surfacing
+    as an opaque HTTP 400.
+    """
+    if not rendered or not rendered.strip():
+        return rendered
+    try:
+        parsed = yaml.safe_load(rendered)
+    except yaml.YAMLError as exc:
+        warnings.warn(
+            f"request_body rendered to invalid YAML: {exc}; "
+            "sending as literal string",
+            UserWarning,
+            stacklevel=2,
+        )
+        return rendered
+    if not isinstance(parsed, dict):
+        warnings.warn(
+            f"request_body rendered to {type(parsed).__name__}, expected a "
+            "mapping; sending as literal string",
+            UserWarning,
+            stacklevel=2,
+        )
+        return rendered
+    return parsed
 
 
 def _strip_url_path(url: str) -> tuple[str, str]:
@@ -172,7 +208,7 @@ def assemble_request(
 
     # Build field_name mapping from method_spec params
     field_map: dict[str, str] = {}
-    for location in ("query",):
+    for location in ("query", "header"):
         for param in method_spec.get("params", {}).get(location, []):
             name = param.get("name", "")
             field = param.get("field", name)
@@ -219,7 +255,8 @@ def assemble_request(
     user_headers = params.get("header", {})
     if isinstance(user_headers, dict):
         for k, v in user_headers.items():
-            headers[k] = str(v)
+            api_key = field_map.get(k, k)
+            headers[api_key] = str(v)
 
     # --- 5. Build body (JSON or multipart) ---
     body: dict[str, Any] | None = None
@@ -263,6 +300,8 @@ def assemble_request(
             req_body = method_spec.get("request_body")
             if req_body is not None:
                 body = _render_value(req_body, params)
+                if isinstance(body, str):
+                    body = _parse_rendered_body(body)
             else:
                 # Fallback: use body params from method_spec with field mapping
                 body_params = params.get("body", {})

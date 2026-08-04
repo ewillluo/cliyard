@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,7 @@ def load_service(spec_dir: str | Path) -> dict[str, Any]:
 
     # Load service config
     service = _load_yaml(service_path)
+    _render_server_templates(service)
 
     # Normalize server config: support both list (new) and dict (old) format
     server_raw = service.get("server", {})
@@ -250,6 +252,46 @@ def _resolve_steps(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _render_server_templates(service: dict[str, Any]) -> None:
+    """Render ``{{ env("VAR") }}`` templates in every server ``base_url``.
+
+    If a referenced env var is missing (empty render result) or rendering
+    fails, keep the literal template and emit a warning so the
+    misconfiguration is visible instead of silently producing an empty
+    ``base_url`` that falls back to an unexpected default.
+    """
+    from cliyard.engine.template import Template
+
+    server_raw = service.get("server", {})
+    entries: list[dict[str, Any]] = []
+    if isinstance(server_raw, list):
+        entries = [e for e in server_raw if isinstance(e, dict)]
+    elif isinstance(server_raw, dict):
+        entries = [server_raw]
+    for entry in entries:
+        raw_url = entry.get("base_url")
+        if isinstance(raw_url, str) and ("{{" in raw_url or "{%" in raw_url):
+            try:
+                rendered = Template(raw_url).render()
+            except Exception as exc:
+                warnings.warn(
+                    f"base_url template {raw_url!r} failed to render: {exc}; "
+                    "keeping the literal template",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            if not rendered.strip():
+                warnings.warn(
+                    f"base_url template {raw_url!r} rendered empty "
+                    "(referenced env var not set?); keeping the literal template",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            entry["base_url"] = rendered
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

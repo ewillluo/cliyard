@@ -31,6 +31,11 @@ from cliyard.validate.types import (
 _LOCATIONS = ("argument", "path", "query", "header", "body")
 
 
+def _norm_param_name(name: str) -> str:
+    """Normalize a param name for loose matching: lowercase, '-' == '_'."""
+    return name.lower().replace("-", "_")
+
+
 @dataclass
 class ValidatedParams:
     """Parameters grouped by HTTP location, ready for request assembly.
@@ -81,10 +86,12 @@ def bind_and_validate(kwargs: dict[str, Any], method_spec: dict[str, Any]) -> Va
             name = field_spec["name"]
             value = kwargs.get(name)
 
-            # Click normalizes argument names to lowercase; try case-insensitive fallback
+            # Click normalizes argument names to lowercase; try case-insensitive
+            # fallback, treating '-' and '_' as equivalent (Click turns option
+            # flags like --x-namespace into the kwarg x_namespace).
             if value is None:
                 for k, v in kwargs.items():
-                    if k.lower() == name.lower():
+                    if _norm_param_name(k) == _norm_param_name(name):
                         value = v
                         break
 
