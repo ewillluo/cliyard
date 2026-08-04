@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -85,15 +86,32 @@ def _parse_rendered_body(rendered: str) -> Any:
 
     ``request_body`` may be written as a YAML block scalar so Jinja
     conditionals (``{% if %}``) survive the spec's YAML parse.  After
-    rendering, parse the result back into a mapping.
+    rendering, parse the result back into a mapping.  If the rendered text
+    is not valid YAML or does not parse to a mapping, keep it as a literal
+    string and warn so template mistakes are visible instead of surfacing
+    as an opaque HTTP 400.
     """
     if not rendered or not rendered.strip():
         return rendered
     try:
         parsed = yaml.safe_load(rendered)
-    except yaml.YAMLError:
+    except yaml.YAMLError as exc:
+        warnings.warn(
+            f"request_body rendered to invalid YAML: {exc}; "
+            "sending as literal string",
+            UserWarning,
+            stacklevel=2,
+        )
         return rendered
-    return parsed if isinstance(parsed, dict) else rendered
+    if not isinstance(parsed, dict):
+        warnings.warn(
+            f"request_body rendered to {type(parsed).__name__}, expected a "
+            "mapping; sending as literal string",
+            UserWarning,
+            stacklevel=2,
+        )
+        return rendered
+    return parsed
 
 
 def _strip_url_path(url: str) -> tuple[str, str]:

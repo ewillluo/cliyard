@@ -583,26 +583,23 @@ server:
 
     # 6. Copy spec files (skip if already in specs_dir)
     copied = 0
-    _SUBDIRS = ("resources", "flows")
+    _SKIP_DIRS = ("plugins",)
     if spec_dir and spec_dir.resolve() != specs_dir.resolve():
         for yaml_file in sorted(spec_dir.glob("*.yaml")):
             dest = specs_dir / yaml_file.name
             shutil.copy2(yaml_file, dest)
             copied += 1
-        for subdir in _SUBDIRS:
-            sub_src = spec_dir / subdir
-            if sub_src.is_dir():
-                sub_dest = specs_dir / subdir
-                sub_dest.mkdir(parents=True, exist_ok=True)
-                for yaml_file in sorted(sub_src.glob("*.yaml")):
-                    shutil.copy2(yaml_file, sub_dest / yaml_file.name)
-                    copied += 1
+        for sub_src in sorted(d for d in spec_dir.iterdir() if d.is_dir() and d.name not in _SKIP_DIRS):
+            for yaml_file in sorted(sub_src.rglob("*.yaml")):
+                rel = yaml_file.relative_to(sub_src)
+                dest = specs_dir / sub_src.name / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(yaml_file, dest)
+                copied += 1
     elif spec_dir and spec_dir.resolve() == specs_dir.resolve():
         copied = len(list(spec_dir.glob("*.yaml")))
-        for subdir in _SUBDIRS:
-            sub = specs_dir / subdir
-            if sub.is_dir():
-                copied += len(list(sub.glob("*.yaml")))
+        for sub_src in (d for d in specs_dir.iterdir() if d.is_dir() and d.name not in _SKIP_DIRS):
+            copied += len(list(sub_src.rglob("*.yaml")))
     click.echo(f"✔ Copied {copied} spec file(s) to src/{pkg_name}/specs/")
 
     # 6b. Copy plugins directory if it exists

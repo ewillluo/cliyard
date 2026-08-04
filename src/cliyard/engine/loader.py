@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -254,7 +255,13 @@ def _resolve_steps(
 
 
 def _render_server_templates(service: dict[str, Any]) -> None:
-    """Render ``{{ env("VAR") }}`` templates in every server ``base_url``."""
+    """Render ``{{ env("VAR") }}`` templates in every server ``base_url``.
+
+    If a referenced env var is missing (empty render result) or rendering
+    fails, keep the literal template and emit a warning so the
+    misconfiguration is visible instead of silently producing an empty
+    ``base_url`` that falls back to an unexpected default.
+    """
     from cliyard.engine.template import Template
 
     server_raw = service.get("server", {})
@@ -267,9 +274,24 @@ def _render_server_templates(service: dict[str, Any]) -> None:
         raw_url = entry.get("base_url")
         if isinstance(raw_url, str) and ("{{" in raw_url or "{%" in raw_url):
             try:
-                entry["base_url"] = Template(raw_url).render()
-            except Exception:
-                pass
+                rendered = Template(raw_url).render()
+            except Exception as exc:
+                warnings.warn(
+                    f"base_url template {raw_url!r} failed to render: {exc}; "
+                    "keeping the literal template",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            if not rendered.strip():
+                warnings.warn(
+                    f"base_url template {raw_url!r} rendered empty "
+                    "(referenced env var not set?); keeping the literal template",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            entry["base_url"] = rendered
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

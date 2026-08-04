@@ -282,3 +282,94 @@ class TestEmptyListJsonOutput:
         result = self._invoke("table", monkeypatch)
         assert result.exit_code == 0
         assert "No results found." in result.output
+
+
+# ---------------------------------------------------------------------------
+# Review follow-ups: missing-env warning, gen all subdirs, body parse warning
+# ---------------------------------------------------------------------------
+
+
+class TestBaseUrlEnvMissingWarns:
+    def test_missing_env_keeps_literal_and_warns(self, tmp_path):
+        spec_dir = _write_spec_dir(tmp_path)
+        (spec_dir / "_auth.yaml").write_text(
+            "name: test\nserver:\n  base_url: '{{ env(\"UNSET_VAR_XYZ\") }}'\n"
+        )
+        from cliyard.engine.loader import load_service
+
+        with pytest.warns(UserWarning, match="rendered empty"):
+            service = load_service(spec_dir)
+        assert service["server"]["base_url"] == '{{ env("UNSET_VAR_XYZ") }}'
+
+    def test_render_exception_keeps_literal_and_warns(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("UNSET_VAR_XYZ", raising=False)
+        spec_dir = _write_spec_dir(tmp_path)
+        (spec_dir / "_auth.yaml").write_text(
+            "name: test\nserver:\n  base_url: '{{ env(\"UNSET_VAR_XYZ\") }'\n"
+        )
+        from cliyard.engine.loader import load_service
+
+        with pytest.warns(UserWarning, match="failed to render"):
+            service = load_service(spec_dir)
+        assert service["server"]["base_url"] == '{{ env("UNSET_VAR_XYZ") }'
+
+
+class TestGenCopiesAllSubdirs:
+    def test_copies_custom_subdirs(self, tmp_path):
+        from cliyard.cli.__main__ import cli
+
+        spec_dir = _write_spec_dir(tmp_path)
+        custom = spec_dir / "custom"
+        custom.mkdir()
+        (custom / "extra.yaml").write_text(
+            "path: extra\nmethods:\n  list:\n    http:\n      method: GET\n"
+        )
+        out = tmp_path / "out"
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["gen", "--name", "mycli",
+                                     "--defs-path", str(spec_dir),
+                                     "--output", str(out)])
+        assert result.exit_code == 0, result.output
+        specs_out = out / "src" / "mycli" / "specs"
+        assert (specs_out / "repos.yaml").exists()
+        assert (specs_out / "custom" / "extra.yaml").exists()
+
+    def test_plugins_still_copied_as_tree(self, tmp_path):
+        from cliyard.cli.__main__ import cli
+
+        spec_dir = _write_spec_dir(tmp_path)
+        plugins = spec_dir / "plugins"
+        plugins.mkdir()
+        (plugins / "hooks.py").write_text("# plugin\n")
+        (plugins / "data.yaml").write_text("x: 1\n")
+        out = tmp_path / "out"
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["gen", "--name", "mycli",
+                                     "--defs-path", str(spec_dir),
+                                     "--output", str(out)])
+        assert result.exit_code == 0, result.output
+        specs_out = out / "src" / "mycli" / "specs"
+        assert (specs_out / "plugins" / "hooks.py").exists()
+        assert (specs_out / "plugins" / "data.yaml").exists()
+
+
+class TestRequestBodyParseWarns:
+    def test_invalid_yaml_body_warns_and_stays_literal(self):
+        from cliyard.engine.assembler import _parse_rendered_body
+
+        with pytest.warns(UserWarning, match="invalid YAML"):
+            body = _parse_rendered_body("name: [unclosed")
+        assert body == "name: [unclosed"
+
+    def test_non_mapping_body_warns_and_stays_literal(self):
+        from cliyard.engine.assembler import _parse_rendered_body
+
+        with pytest.warns(UserWarning, match="expected a mapping"):
+            body = _parse_rendered_body("- a\n- b")
+        assert body == "- a\n- b"
+
+    def test_valid_mapping_body_unchanged(self):
+        from cliyard.engine.assembler import _parse_rendered_body
+
+        body = _parse_rendered_body("name: hello\nage: 3")
+        assert body == {"name": "hello", "age": 3}
