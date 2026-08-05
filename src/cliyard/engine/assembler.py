@@ -57,18 +57,22 @@ def _render_value(value: Any, variables: dict[str, str]) -> Any:
             return value
         try:
             rendered = Template(value).render(**variables)
-            # When the rendering context contains list/tuple values, the
+            # When the rendering context contains list/tuple/dict values, the
             # finalize hook in template.py serializes them as JSON strings.
             # Parse the rendered output back to native Python types so that
             # {{ id }} with id=("3","4") produces ["3","4"] (list) instead
-            # of the JSON string "[\"3\",\"4\"]".
+            # of the JSON string "[\"3\",\"4\"]", and {{ spec }} with
+            # spec={"kind": "agent"} produces the dict instead of a string.
             if "tojson" in value or any(
-                isinstance(v, (list, tuple)) for v in variables.values()
+                isinstance(v, (list, tuple, dict)) for v in variables.values()
             ):
                 try:
-                    return json.loads(rendered)
+                    parsed = json.loads(rendered)
                 except (json.JSONDecodeError, ValueError):
                     pass
+                else:
+                    if "tojson" in value or isinstance(parsed, (dict, list)):
+                        return parsed
             return rendered
         except Exception:
             # If rendering fails (missing var), return original
@@ -79,6 +83,17 @@ def _render_value(value: Any, variables: dict[str, str]) -> Any:
         return [_render_value(item, variables) for item in value]
     else:
         return value
+
+
+def _to_query_string(value: Any) -> str:
+    """Serialize a value for query/header placement.
+
+    dict/list values (e.g. from ``type: json`` params) are serialized as
+    JSON so they round-trip correctly instead of becoming Python reprs.
+    """
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).lower() if isinstance(value, bool) else str(value)
 
 
 def _parse_rendered_body(rendered: str) -> Any:
@@ -221,7 +236,7 @@ def assemble_request(
         for k, v in spec_query_dict.items():
             rendered = _render_value(v, params)
             if rendered is not None and rendered != "":
-                query_params[k] = str(rendered)
+                query_params[k] = _to_query_string(rendered)
 
     # Static query params from spec (list format: [{field: name, default: val}])
     spec_query = http.get("query_params", [])
@@ -232,7 +247,7 @@ def assemble_request(
                 if field_name:
                     value = params.get(field_name, qp.get("default"))
                     if value is not None and value != "":
-                        query_params[field_name] = str(value).lower() if isinstance(value, bool) else str(value)
+                        query_params[field_name] = _to_query_string(value)
 
     # User-provided query params (override spec defaults)
     user_query = params.get("query", {})
@@ -240,7 +255,7 @@ def assemble_request(
         for k, v in user_query.items():
             if v is not None and v != "":
                 api_key = field_map.get(k, k)
-                query_params[api_key] = str(v).lower() if isinstance(v, bool) else str(v)
+                query_params[api_key] = _to_query_string(v)
 
     # --- 4. Collect headers ---
     headers: dict[str, str] = {}
@@ -249,14 +264,14 @@ def assemble_request(
     spec_headers = http.get("headers", {})
     if isinstance(spec_headers, dict):
         for k, v in spec_headers.items():
-            headers[k] = str(v)
+            headers[k] = _to_query_string(v)
 
     # User-provided headers (override spec)
     user_headers = params.get("header", {})
     if isinstance(user_headers, dict):
         for k, v in user_headers.items():
             api_key = field_map.get(k, k)
-            headers[api_key] = str(v)
+            headers[api_key] = _to_query_string(v)
 
     # --- 5. Build body (JSON or multipart) ---
     body: dict[str, Any] | None = None
@@ -281,7 +296,7 @@ def assemble_request(
                 if value:
                     file_path = value
             elif value is not None:
-                query_params[field_name] = str(value).lower() if isinstance(value, bool) else str(value)
+                query_params[field_name] = _to_query_string(value)
 
         # Set file upload from the parsed file_path
         if file_path:
