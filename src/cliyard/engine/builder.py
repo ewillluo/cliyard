@@ -66,6 +66,8 @@ def _map_param_type(type_str: str) -> type:
         "string": str,
         "str": str,
         "float": float,
+        "json": str,
+        "object": str,
     }
     try:
         return mapping[type_str]

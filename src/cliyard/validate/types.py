@@ -12,6 +12,7 @@ Example::
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -57,6 +58,8 @@ def validate_field(field_spec: dict[str, Any], value: Any) -> Any:
         return _validate_enum(field_spec, value)
     elif field_type == "file":
         return str(value)
+    elif field_type in ("json", "object"):
+        return _validate_json(field_spec, value)
     else:
         # Check plugin-registered field types before failing
         from cliyard.plugin import PluginRegistry
@@ -206,6 +209,41 @@ def _validate_float(field_spec: dict[str, Any], value: Any) -> float:
         raise ValidationError(name, f"Value too large: {value} > {max_val}")
 
     return value
+
+
+def _validate_json(field_spec: dict[str, Any], value: Any) -> Any:
+    """Validate a JSON field, parsing a JSON string into an object/array.
+
+    Accepts:
+        - str: parsed via ``json.loads`` (must be a JSON object or array).
+        - dict/list: passed through as-is (already structured).
+
+    Returns:
+        Parsed JSON object/array.
+
+    Raises:
+        ValidationError: If the string is not valid JSON, or the value is a
+            non-JSON scalar that cannot represent a structured object.
+    """
+    name = field_spec.get("name", "unknown")
+
+    if not isinstance(value, str):
+        if isinstance(value, (dict, list)):
+            return value
+        raise ValidationError(
+            name, f"Cannot convert {type(value).__name__} to JSON object"
+        )
+
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        raise ValidationError(name, f"Cannot parse '{value}' as JSON") from None
+
+    if not isinstance(parsed, (dict, list)):
+        raise ValidationError(
+            name, f"JSON value must be an object or array, got {type(parsed).__name__}"
+        )
+    return parsed
 
 
 def _validate_bool(field_spec: dict[str, Any], value: Any) -> bool:
