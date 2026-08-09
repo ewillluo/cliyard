@@ -366,6 +366,7 @@ def _parse_flow_step(step_dict: dict[str, Any], flows_path: Path) -> FlowStep:
         until=until,
         hooks=step_dict.get("hooks"),
         type=step_dict.get("type", ""),
+        show_response=step_dict.get("show_response", False),
     )
 
 

@@ -118,6 +118,8 @@ class FlowStep:
         until: Polling/wait-until configuration (mutually exclusive with for_each).
         hooks: Per-step hook overrides (FlowHookType → config dict).
         type: Step type override (normally inferred from config).
+        show_response: If ``True``, print this step's resolved params and
+            response details after execution (per-step verbose override).
     """
 
     id: str
@@ -133,6 +135,7 @@ class FlowStep:
     until: UntilConfig | None = None
     hooks: dict[str, dict[str, Any]] | None = None
     type: str = ""
+    show_response: bool = False
 
 
 # ---------------------------------------------------------------------------

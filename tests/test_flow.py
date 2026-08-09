@@ -97,6 +97,7 @@ class TestDataclassDefaults:
         assert step.for_each is None
         assert step.retry is None
         assert step.until is None
+        assert step.show_response is False
 
     def test_flow_spec(self):
         spec = FlowSpec(command="test", steps=[])
@@ -242,6 +243,27 @@ flows:
         assert flow.steps[0].id == "list_apps"
         assert flow.steps[0].use == "app.list"
         assert flow.steps[1].id == "create_release"
+
+    def test_flows_show_response(self, tmp_path):
+        flows_yaml = tmp_path / "_flows.yaml"
+        flows_yaml.write_text(
+            """
+flows:
+  debug:
+    command: debug
+    steps:
+      - id: list_apps
+        use: app.list
+        show_response: true
+      - id: create_release
+        use: app.create
+"""
+        )
+        result = load_flows(tmp_path)
+        assert len(result) == 1
+        steps = result[0].steps
+        assert steps[0].show_response is True
+        assert steps[1].show_response is False
 
     def test_missing_command_raises(self, tmp_path):
         flows_yaml = tmp_path / "_flows.yaml"
@@ -1081,6 +1103,129 @@ class TestE2EHooksFlow:
 
         assert result.exit_code == 0
         assert "Flow completed" in result.output
+
+
+# ===========================================================================
+# Verbose / debug mode tests (-k verbose)
+# ===========================================================================
+
+
+class TestVerboseMode:
+    """Flow verbose output: --verbose flag and per-step show_response."""
+
+    FLOW_SPEC = FlowSpec(
+        command="verbose-demo",
+        description="调试输出流程",
+        params={
+            "query": [
+                {"name": "name", "type": "string", "default": ""},
+            ],
+        },
+        steps=[
+            FlowStep(id="list_users", description="列出用户", use="user.list",
+                     params={"name": "{{ flow.name }}"}),
+            FlowStep(id="create_user", description="创建用户", use="user.create",
+                     params={"name": "{{ flow.name }}"}),
+        ],
+    )
+
+    def test_verbose_flag_prints_step_details(self, http_mock) -> None:
+        """--verbose prints use / params / response for every step."""
+        http_mock["responses"].append({"users": [{"name": "alice"}]})
+        http_mock["responses"].append({"user": {"name": "alice", "created": True}})
+
+        cmd = build_flow_command(self.FLOW_SPEC, ServiceContext(base_url="http://test.local"), _E2E_SERVICE_SPEC)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, ["--name=alice", "--verbose"])
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        assert result.output.count("✓ 完成") == 2
+        assert "① 列出用户" in result.output
+        assert "② 创建用户" in result.output
+        assert "use: user.list" in result.output
+        assert "use: user.create" in result.output
+        assert "params:" in result.output
+        assert "response:" in result.output
+        assert '"users"' in result.output
+
+    def test_no_verbose_omits_details(self, http_mock) -> None:
+        """Default run keeps minimal output — no response details."""
+        http_mock["responses"].append({"users": []})
+        http_mock["responses"].append({"user": {"created": True}})
+
+        cmd = build_flow_command(self.FLOW_SPEC, ServiceContext(base_url="http://test.local"), _E2E_SERVICE_SPEC)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, ["--name=alice"])
+
+        assert result.exit_code == 0
+        assert "response:" not in result.output
+        assert "params:" not in result.output
+        # 非 verbose：每步一行编号 + ✓
+        assert "① 列出用户" in result.output
+        assert "② 创建用户" in result.output
+        assert "✓" in result.output
+
+    def test_show_response_step_option(self, http_mock) -> None:
+        """Per-step show_response: true prints details without --verbose."""
+        flow_spec = FlowSpec(
+            command="partial-debug",
+            description="仅单个步骤输出",
+            params={
+                "query": [
+                    {"name": "name", "type": "string", "default": ""},
+                ],
+            },
+            steps=[
+                FlowStep(id="list_users", description="列出用户", use="user.list",
+                         params={"name": "{{ flow.name }}"}, show_response=True),
+                FlowStep(id="create_user", description="创建用户", use="user.create",
+                         params={"name": "{{ flow.name }}"}),
+            ],
+        )
+        http_mock["responses"].append({"users": [{"name": "alice"}]})
+        http_mock["responses"].append({"user": {"name": "alice", "created": True}})
+
+        cmd = build_flow_command(flow_spec, ServiceContext(base_url="http://test.local"), _E2E_SERVICE_SPEC)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, ["--name=alice"])
+
+        assert result.exit_code == 0
+        assert result.output.count("✓ 完成") == 1
+        assert "use: user.list" in result.output
+        assert "use: user.create" not in result.output
+        assert '"users"' in result.output
+        assert '"created"' not in result.output
+
+    def test_failed_step_verbose_shows_params(self, http_mock) -> None:
+        """--verbose 下失败步骤也展示请求参数与错误详情."""
+        http_mock["responses"].append({"users": []})
+        http_mock["responses"].append(ApiError(500, "create failed", "boom"))
+
+        cmd = build_flow_command(self.FLOW_SPEC, ServiceContext(base_url="http://test.local"), _E2E_SERVICE_SPEC)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, ["--name=alice", "--verbose"])
+
+        assert result.exit_code == 0
+        assert "① 列出用户" in result.output
+        assert "params:" in result.output
+        assert '"name"' in result.output
+        assert "✗" in result.output
+        assert "boom" in result.output
+        assert "Flow failed" in result.output
+
+    def test_failed_step_no_verbose_plain_line(self, http_mock) -> None:
+        """非 verbose 失败步骤保持单行输出，无 params 详情."""
+        http_mock["responses"].append({"users": []})
+        http_mock["responses"].append(ApiError(500, "create failed", "boom"))
+
+        cmd = build_flow_command(self.FLOW_SPEC, ServiceContext(base_url="http://test.local"), _E2E_SERVICE_SPEC)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cmd, ["--name=alice"])
+
+        assert result.exit_code == 0
+        assert "params:" not in result.output
+        assert "boom" in result.output
+        assert "Flow failed" in result.output
 
 
 # ===========================================================================
