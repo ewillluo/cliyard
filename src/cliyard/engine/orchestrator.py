@@ -16,6 +16,7 @@ Pipeline per step (matching :func:`~cliyard.engine.builder._make_callback`):
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,6 +59,7 @@ class FlowContext:
     _flow_aborted: bool = False
     _flow_skipped: bool = False
     _current_flow: Any = None
+    verbose: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -483,8 +485,15 @@ def _execute_action_item(
         )
 
         try:
-            result = _execute_step(sub_step, context)
+            result, _ = _execute_step(sub_step, context)
             context.step_state[step_id] = result
+            if getattr(context, "verbose", False):
+                _show_sub_step_details(
+                    sub_step,
+                    resolved,
+                    result,
+                    context,
+                )
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
             context.console.print(f"[red]✗ Sub-step {step_id!r} failed:[/red] {_msg}")
@@ -829,26 +838,240 @@ def _execute_plugin_step(step, context: FlowContext) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _execute_step(step, context: FlowContext) -> Any:
+def _execute_step(step, context: FlowContext) -> tuple[Any, dict]:
     """Execute a single flow step, dispatching to the right handler.
 
     Handles for_each, retry, until, use, and plain param steps.
+
+    Returns:
+        Tuple of ``(result, resolved_params)`` — the resolved params are
+        returned so callers can display them without re-rendering templates.
     """
     template_ctx = _build_template_context(context)
     resolved_params = resolve_template(step.params, template_ctx)
 
     if step.for_each:
-        return _execute_for_each(step, context)
+        result = _execute_for_each(step, context)
     elif step.retry:
-        return _execute_with_retry(step, context, resolved_params)
+        result = _execute_with_retry(step, context, resolved_params)
     elif step.until:
-        return _execute_until(step, context, resolved_params)
+        result = _execute_until(step, context, resolved_params)
     elif step.type and step.type.startswith("plugin:"):
-        return _execute_plugin_step(step, context)
+        result = _execute_plugin_step(step, context)
     elif step.use:
-        return execute_use_step(step, resolved_params, context)
+        result = execute_use_step(step, resolved_params, context)
     else:
-        return resolved_params
+        result = resolved_params
+    return result, resolved_params
+
+
+# ---------------------------------------------------------------------------
+# Verbose / debug output
+# ---------------------------------------------------------------------------
+
+_STEP_NUMERALS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+
+
+def _step_numeral(index: int) -> str:
+    """Return the circled numeral for a 1-based step index."""
+    if 1 <= index <= len(_STEP_NUMERALS):
+        return _STEP_NUMERALS[index - 1]
+    return f"[{index}]"
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as ``1.23s`` or ``1m 30s``."""
+    if seconds >= 60:
+        minutes = int(seconds // 60)
+        secs = seconds - minutes * 60
+        return f"{minutes}m {secs:.1f}s"
+    return f"{seconds:.2f}s"
+
+
+def _format_value(value: Any) -> str:
+    """Pretty-format a value for verbose output.
+
+    JSON-serializable values are rendered as compact JSON (Chinese preserved);
+    everything else falls back to ``repr()``.
+    """
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(
+                value, ensure_ascii=False, indent=2, default=str
+            )
+        except Exception:
+            pass
+    return repr(value)
+
+
+def _show_step_progress(
+    step_index: int,
+    label: str,
+    elapsed: float,
+    context: FlowContext,
+) -> None:
+    """Print a compact one-line step result (default flow output).
+
+    Args:
+        step_index: 1-based step position.
+        label: Step description or id.
+        elapsed: Step execution time in seconds.
+        context: Current flow execution context (for console output).
+    """
+    context.console.print(
+        f"{_step_numeral(step_index)} {label} "
+        f"[green]✓[/green] [dim]({_format_elapsed(elapsed)})[/dim]"
+    )
+
+
+def _show_step_panel(
+    step,
+    step_index: int,
+    label: str,
+    resolved_params: dict,
+    result: Any,
+    elapsed: float,
+    context: FlowContext,
+) -> None:
+    """Print a step's request/response details in a rich Panel.
+
+    Triggered when the flow runs with ``--verbose`` or the step sets
+    ``show_response: true`` in its YAML definition.  Displays:
+
+    * The delegated target (``use: resource.method`` / ``type: ...``)
+    * The resolved request params (what was actually sent)
+    * The step result (what came back / was extracted)
+    * Execution time
+
+    Args:
+        step: The :class:`~cliyard.engine.flow.FlowStep` that executed.
+        step_index: 1-based step position.
+        label: Step description or id.
+        resolved_params: Step params after Jinja2 template resolution.
+        result: Step execution result.
+        elapsed: Step execution time in seconds.
+        context: Current flow execution context (for console output).
+    """
+    from rich.console import Group
+    from rich.json import JSON
+    from rich.padding import Padding
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich import box
+
+    parts: list = []
+    if step.use:
+        parts.append(Text(f"  use: {step.use}", style="dim"))
+    elif step.type:
+        parts.append(Text(f"  type: {step.type}", style="dim"))
+
+    if resolved_params:
+        parts.append(Text("  params:"))
+        parts.append(Padding(JSON.from_data(resolved_params, indent=2), (0, 0, 0, 2)))
+
+    parts.append(Text("  response:"))
+    if isinstance(result, (dict, list)):
+        try:
+            parts.append(Padding(JSON.from_data(result, indent=2), (0, 0, 0, 2)))
+        except Exception:
+            parts.append(Text(f"  {result!r}"))
+    else:
+        parts.append(Text(f"  {result!r}"))
+
+    parts.append(
+        Text(f"  ✓ 完成 ({_format_elapsed(elapsed)})", style="green")
+    )
+
+    panel = Panel(
+        Group(*parts),
+        title=f"{_step_numeral(step_index)} {label}",
+        title_align="left",
+        border_style="blue",
+        box=box.ROUNDED,
+        padding=(0, 1),
+    )
+    context.console.print(panel)
+
+
+def _show_sub_step_details(
+    sub_step,
+    resolved_params: dict,
+    result: Any,
+    context: FlowContext,
+) -> None:
+    """Print indented request/response details for an on_result sub-step.
+
+    Used in verbose mode so sub-steps (e.g. the ``else`` branch of a
+    decision step) are as observable as top-level steps.
+
+    Args:
+        sub_step: The :class:`~cliyard.engine.flow.FlowStep` that executed.
+        resolved_params: Step params after template resolution.
+        result: Step execution result.
+        context: Current flow execution context (for console output).
+    """
+    console = context.console
+    target = sub_step.use or sub_step.type or ""
+    console.print(f"    [dim]└─ {target}[/dim]")
+    if resolved_params:
+        console.print(f"        [dim]params:[/dim] {_format_value(resolved_params)}")
+    console.print(f"        [dim]response:[/dim] {_format_value(result)}")
+
+
+def _show_failed_step(
+    step,
+    step_index: int,
+    label: str,
+    error_msg: str,
+    context: FlowContext,
+) -> None:
+    """Print a failed step's request details in a red Panel (verbose mode).
+
+    Triggered when a step raises while ``--verbose`` or ``show_response:
+    true`` is active — the params that were about to be sent are exactly
+    what a debugger needs to see when a step fails.
+
+    Args:
+        step: The :class:`~cliyard.engine.flow.FlowStep` that failed.
+        step_index: 1-based step position.
+        label: Step description or id.
+        error_msg: Sanitized error message (already escaped for rich).
+        context: Current flow execution context (for console output).
+    """
+    from rich.console import Group
+    from rich.json import JSON
+    from rich.padding import Padding
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich import box
+
+    resolved_params = resolve_template(
+        step.params, _build_template_context(context)
+    )
+
+    parts: list = []
+    if step.use:
+        parts.append(Text(f"  use: {step.use}", style="dim"))
+    elif step.type:
+        parts.append(Text(f"  type: {step.type}", style="dim"))
+
+    if resolved_params:
+        parts.append(Text("  params:"))
+        parts.append(
+            Padding(JSON.from_data(resolved_params, indent=2), (0, 0, 0, 2))
+        )
+
+    parts.append(Text(f"  ✗ {error_msg}", style="red"))
+
+    panel = Panel(
+        Group(*parts),
+        title=f"{_step_numeral(step_index)} {label}",
+        title_align="left",
+        border_style="red",
+        box=box.ROUNDED,
+        padding=(0, 1),
+    )
+    context.console.print(panel)
 
 
 # ---------------------------------------------------------------------------
@@ -936,6 +1159,7 @@ def run_flow(
     service_ctx,
     service_spec: dict,
     server_override: str | None = None,
+    verbose: bool = False,
 ) -> None:
     """Execute a flow definition sequentially.
 
@@ -953,6 +1177,8 @@ def run_flow(
         service_ctx: :class:`~cliyard.engine.builder.ServiceContext` with
             ``base_url``, ``prefix``, ``auth_spec``, ``pre_filled_auth``.
         service_spec: Full loaded service dict (for resource/method lookup).
+        verbose: If ``True``, print each step's resolved params and response
+            details (equivalent to ``show_response: true`` on every step).
 
     Raises:
         CliyError: If any step fails (flow is aborted).
@@ -990,6 +1216,7 @@ def run_flow(
         server_override=server_override or "",
         pre_filled_auth=service_ctx.pre_filled_auth,
         _current_flow=flow_spec,
+        verbose=verbose,
     )
 
     # --- on_start hooks ---
@@ -1001,19 +1228,34 @@ def run_flow(
         return
 
     step_results: list[dict] = []
-    for step in flow_spec.steps:
+    for step_index, step in enumerate(flow_spec.steps, 1):
         label = step.description or step.id
-        console.print(f"[blue] ▶[/blue] {label}")
+        _start = time.perf_counter()
 
         # --- on_step_start hooks ---
         _trigger_step_hooks("on_step_start", step, context)
 
         try:
-            result = _execute_step(step, context)
+            result, resolved_params = _execute_step(step, context)
 
             # Store result in step_state for subsequent steps
             context.step_state[step.id] = result
             step_results.append({"id": step.id, "label": label, "status": "ok"})
+            _elapsed = time.perf_counter() - _start
+
+            # Verbose / show_response: print request & response details
+            if verbose or getattr(step, "show_response", False):
+                _show_step_panel(
+                    step,
+                    step_index,
+                    label,
+                    resolved_params,
+                    result,
+                    _elapsed,
+                    context,
+                )
+            else:
+                _show_step_progress(step_index, label, _elapsed, context)
 
             # --- on_step_end hooks ---
             _trigger_step_hooks("on_step_end", step, context)
@@ -1031,14 +1273,26 @@ def run_flow(
 
         except CliyError as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
-            console.print(f"  [red]✗[/red] {_msg}")
+            if verbose or getattr(step, "show_response", False):
+                _show_failed_step(step, step_index, label, _msg, context)
+            else:
+                console.print(
+                    f"{_step_numeral(step_index)} {label} "
+                    f"[red]✗[/red] {_msg}"
+                )
             step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
             _show_flow_summary(console, step_results, "failed")
             return
         except Exception as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
-            console.print(f"  [red]✗[/red] {_msg}")
+            if verbose or getattr(step, "show_response", False):
+                _show_failed_step(step, step_index, label, _msg, context)
+            else:
+                console.print(
+                    f"{_step_numeral(step_index)} {label} "
+                    f"[red]✗[/red] {_msg}"
+                )
             step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
             _show_flow_summary(console, step_results, "failed")

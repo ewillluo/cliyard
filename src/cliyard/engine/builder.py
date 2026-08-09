@@ -768,6 +768,13 @@ def build_flow_command(
             click_params.append(_param_to_option(param))
 
     click_params.append(_build_format_option({}, service_ctx))
+    click_params.append(
+        click.Option(
+            ["--verbose"],
+            is_flag=True,
+            help="显示每个步骤的请求参数与响应详情",
+        )
+    )
 
     @click.pass_context
     def callback(ctx: click.Context, **kwargs: Any) -> None:
@@ -780,7 +787,15 @@ def build_flow_command(
             from cliyard.engine.orchestrator import run_flow
 
             _server = (ctx.find_root().obj or {}).get("server")
-            run_flow(flow_spec, kwargs, service_ctx, service_spec or {}, server_override=_server)
+            _verbose = kwargs.pop("verbose", False)
+            run_flow(
+                flow_spec,
+                kwargs,
+                service_ctx,
+                service_spec or {},
+                server_override=_server,
+                verbose=_verbose,
+            )
         except CliyError as e:
             console.print(f"[red]Error:[/red] {str(e).replace('[', '[[]').replace(']', '[]]')}")
         except Exception as e:
