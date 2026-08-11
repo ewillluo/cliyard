@@ -17,6 +17,7 @@ import datetime as datetime_module
 import json
 import os
 import random as random_module
+import re
 import time as time_module
 from typing import Any
 
@@ -75,6 +76,8 @@ class Template:
             self.env.filters["last"] = _filter_last
             self.env.filters["tojson"] = _filter_tojson
             self.env.filters["str_to_list"] = _filter_str_to_list
+            self.env.filters["split"] = _filter_split
+            self.env.filters["re_extract"] = _filter_re_extract
 
             # --- Register whitelisted global functions ---
             self.env.globals["env"] = _func_env
@@ -221,6 +224,57 @@ def _filter_tojson(value: Any, indent: int | None = None) -> str:
 def _filter_str_to_list(value: str, delimiter: str = ",") -> list[str]:
     """Split a comma-separated string into a list."""
     return [item.strip() for item in value.split(delimiter) if item.strip()]
+
+
+def _filter_split(value: Any, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """Split a string into a list, mirroring Python's ``str.split``.
+
+    The sandbox blocks method calls on strings (``msg.split('<br/>')``
+    silently degrades to the original text), so this filter restores the
+    capability in a whitelisted, safe way::
+
+        {{ msg | split('<br/>') }}   →  ["a", "b"]
+        {{ msg | split() }}          →  whitespace split
+        {{ msg | split(',', 2) }}    →  maxsplit honored
+
+    Args:
+        value: The string to split.
+        sep: Separator. ``None`` splits on arbitrary whitespace.
+        maxsplit: Maximum number of splits (default: -1 = no limit).
+    """
+    if sep is None:
+        return str(value).split()
+    return str(value).split(sep, maxsplit)
+
+
+def _filter_re_extract(value: Any, pattern: str, group: int = 0) -> str:
+    """Extract the first regex match from a string.
+
+    Returns ``""`` when the pattern does not match, so templates degrade
+    safely instead of raising.  Useful for pulling ids/tokens out of
+    response text::
+
+        {{ msg | re_extract(r'\\d{4}-\\d{2}-\\d{2}') }}  →  "2026-08-11"
+        {{ msg | re_extract('code=(\\w+)', 1) }}          →  "HELLO"
+
+    Args:
+        value: The string to search.
+        pattern: Regular expression (re.search semantics — first match).
+        group: Capture group to return (default 0 = whole match).
+
+    Returns:
+        The matched substring, or ``""`` if no match (or bad group).
+    """
+    try:
+        match = re.search(pattern, str(value))
+    except (re.error, TypeError):
+        return ""
+    if not match:
+        return ""
+    try:
+        return match.group(group)
+    except (IndexError, AttributeError):
+        return match.group(0)
 
 
 # ---------------------------------------------------------------------------

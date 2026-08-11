@@ -55,6 +55,7 @@ class FlowContext:
     base_url: str = ""
     prefix: str = ""
     server_override: str = ""
+    saved_endpoints: dict = field(default_factory=dict)
     pre_filled_auth: dict | None = None
     _flow_aborted: bool = False
     _flow_skipped: bool = False
@@ -225,11 +226,16 @@ def execute_use_step(
 
     base_url = context.base_url
     prefix = context.prefix
+    # Server resolution precedence (mirrors runner.py resource wiring):
+    # runtime --server > saved credentials endpoints.<server> > spec server > default
     resource_server_name = resource_spec.get("server", "")
     if resource_server_name:
         servers = context.service_spec.get("servers", {})
         srv = servers.get(resource_server_name, {})
-        if srv:
+        saved_ep = (context.saved_endpoints or {}).get(resource_server_name)
+        if saved_ep:
+            base_url = saved_ep
+        elif srv:
             base_url = srv.get("base_url", base_url)
             prefix = srv.get("prefix", prefix)
     # Runtime --server override takes precedence over everything
@@ -482,12 +488,13 @@ def _execute_action_item(
             extract=item.get("extract"),
             on_result=item.get("on_result"),
             on_failure=item.get("on_failure"),
+            show_response=bool(item.get("show_response", False)),
         )
 
         try:
             result, _ = _execute_step(sub_step, context)
             context.step_state[step_id] = result
-            if getattr(context, "verbose", False):
+            if getattr(context, "verbose", False) or sub_step.show_response:
                 _show_sub_step_details(
                     sub_step,
                     resolved,
@@ -635,6 +642,11 @@ def _execute_for_each(step, context: FlowContext) -> list:
             service_spec=context.service_spec,
             base_url=context.base_url,
             prefix=context.prefix,
+            server_override=context.server_override,
+            saved_endpoints=context.saved_endpoints,
+            pre_filled_auth=context.pre_filled_auth,
+            _current_flow=context._current_flow,
+            verbose=context.verbose,
         )
 
         iter_results: dict[str, Any] = {}
@@ -646,6 +658,12 @@ def _execute_for_each(step, context: FlowContext) -> list:
 
             if sub_step.use:
                 sub_result = execute_use_step(sub_step, sub_resolved, iter_ctx)
+            elif sub_step.type == "echo":
+                message = sub_resolved.get("message", "") if isinstance(
+                    sub_resolved, dict
+                ) else ""
+                execute_echo_action(message, iter_ctx)
+                sub_result = message
             else:
                 sub_result = sub_resolved
 
@@ -1196,6 +1214,20 @@ def run_flow(
     _base = server_override or service_ctx.base_url
     client = HttpClient(_base, timeout=service_ctx.timeout)
 
+    # Load saved credentials endpoints (mirrors runner.py resource wiring)
+    saved_endpoints: dict = {}
+    try:
+        from cliyard.client.credentials import get_current_profile
+
+        service_name = service_spec.get("name", "cliyard")
+        auth_spec = service_ctx.auth_spec or {}
+        service_id = auth_spec.get("id", service_name)
+        _profile = get_current_profile(service=service_id)
+        if _profile:
+            saved_endpoints = _profile.get("endpoints", {}) or {}
+    except Exception:
+        saved_endpoints = {}
+
     # Run auth chain if configured
     if service_ctx.auth_spec:
         console.print("[dim]Authenticating...[/dim]")
@@ -1214,6 +1246,7 @@ def run_flow(
         base_url=_base,
         prefix=service_ctx.prefix,
         server_override=server_override or "",
+        saved_endpoints=saved_endpoints,
         pre_filled_auth=service_ctx.pre_filled_auth,
         _current_flow=flow_spec,
         verbose=verbose,

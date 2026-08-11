@@ -352,11 +352,18 @@ def _parse_flow_step(step_dict: dict[str, Any], flows_path: Path) -> FlowStep:
             timeout_message=u.get("timeout_message", ""),
         )
 
+    params = step_dict.get("params", {})
+    if step_dict.get("type") == "echo" and "message" in step_dict:
+        if isinstance(params, dict):
+            params = {**params, "message": step_dict["message"]}
+        else:
+            params = {"message": step_dict["message"]}
+
     return FlowStep(
         id=step_id,
         description=step_dict.get("description", ""),
         use=step_dict.get("use", ""),
-        params=step_dict.get("params", {}),
+        params=params,
         extract=step_dict.get("extract"),
         on_result=step_dict.get("on_result"),
         on_failure=step_dict.get("on_failure"),
