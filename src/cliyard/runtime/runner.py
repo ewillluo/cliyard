@@ -95,7 +95,7 @@ def create_cli(
         ``click.Group`` with resource commands ready to run.
     """
     from cliyard.engine.loader import load_service
-    from cliyard.engine.builder import build_resource_group, ServiceContext
+    from cliyard.engine.builder import build_resource_group, LabeledGroup, ServiceContext
 
     spec_path = Path(spec_dir).resolve()
     if not spec_path.is_dir():
@@ -163,7 +163,7 @@ def create_cli(
         default_format=default_format,
     )
 
-    cli = click.Group(name=service_name, help=description)
+    cli = LabeledGroup(name=service_name, help=description)
 
     # Runtime --server/-s override: parsed natively by Click so it shows in
     # --help and works without any entry-point wiring in downstream CLIs.
@@ -258,7 +258,7 @@ def create_cli(
         gdata = groups_data[gpath]
         children_names = ", ".join(sorted(c.name for c in gdata["children"]))
         gdesc = f"{gdata['description']}（{children_names}）"
-        parent_grp = click.Group(name=gpath.split(".")[-1], short_help=gdesc)
+        parent_grp = LabeledGroup(name=gpath.split(".")[-1], short_help=gdesc)
         for child in gdata["children"]:
             parent_grp.add_command(child)
         built[gpath] = parent_grp
@@ -289,7 +289,7 @@ def create_cli(
     if flows:
         from cliyard.engine.builder import build_flow_command
 
-        flow_group = click.Group(name="flow", help="List and run orchestrated workflow pipelines")
+        flow_group = LabeledGroup(name="flow", help="List and run orchestrated workflow pipelines")
 
         @flow_group.command(name="list")
         def _list_flows():
@@ -304,7 +304,7 @@ def create_cli(
                 table.add_row(f.command, desc)
             console.print(table)
 
-        run_group = click.Group(name="run", help="Run a flow orchestration")
+        run_group = LabeledGroup(name="run", help="Run a flow orchestration")
         for flow_spec in flows:
             flow_cmd = build_flow_command(flow_spec, base_ctx, service)
             run_group.add_command(flow_cmd)

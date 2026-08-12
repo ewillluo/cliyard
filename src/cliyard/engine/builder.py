@@ -540,6 +540,59 @@ def _make_callback(
 
 
 # ---------------------------------------------------------------------------
+# LabeledGroup — shows labels (e.g. [已调试]) next to commands in --help
+# ---------------------------------------------------------------------------
+
+
+def _resolve_labels(method_spec: dict[str, Any]) -> list[str]:
+    """Resolve the ``labels`` list from a method spec."""
+    labels = method_spec.get("labels")
+    if labels is not None:
+        return labels if isinstance(labels, list) else [str(labels)]
+    return []
+
+
+def _format_command_label(subcommand: str, cmd: click.Command) -> str:
+    """Build the display label for a command, prepending any labels."""
+    labels: list[str] = getattr(cmd, "labels", None) or []
+    if labels:
+        badges = "".join(f"[{lb}]" for lb in labels)
+        return f"{badges} {subcommand}"
+    return subcommand
+
+
+class LabeledGroup(click.Group):
+    """A ``click.Group`` that displays labels (e.g. ``[已调试]``) next to
+    commands in ``--help``.  Labels are read from ``cmd.labels`` (a ``list[str]``)
+    set by the builder from the YAML spec's ``labels:`` field."""
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        commands: list[tuple[str, click.Command]] = []
+        for subcommand in self.list_commands(ctx):
+            cmd = self.get_command(ctx, subcommand)
+            if cmd is None or cmd.hidden:
+                continue
+            commands.append((subcommand, cmd))
+
+        if not commands:
+            return
+
+        # Build display labels and compute max width
+        display_labels: list[str] = [_format_command_label(s, c) for s, c in commands]
+        max_label_width = max(len(dl) for dl in display_labels) if display_labels else 0
+        limit = formatter.width - 6 - max_label_width
+
+        rows: list[tuple[str, str]] = []
+        for (subcommand, cmd), label in zip(commands, display_labels):
+            help_text = cmd.get_short_help_str(limit)
+            rows.append((label, help_text))
+
+        if rows:
+            with formatter.section("Commands"):
+                formatter.write_dl(rows)
+
+
+# ---------------------------------------------------------------------------
 # Public builders
 # ---------------------------------------------------------------------------
 
@@ -578,12 +631,14 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
     # Built-in --format option for list command
     click_params.append(_build_format_option(method_spec, ctx))
 
-    return click.Command(
+    cmd = click.Command(
         name="list",
         callback=_make_callback(method_spec, ctx, resource_spec["name"], resource_spec),
         params=click_params,
         short_help=method_spec.get("description") or "List resources",
     )
+    cmd.labels = _resolve_labels(method_spec)
+    return cmd
 
 
 def build_operation_command(
@@ -631,12 +686,14 @@ def build_operation_command(
     else:
         callback = _make_callback(method_spec, ctx, resource_spec["name"], resource_spec)
 
-    return click.Command(
+    cmd = click.Command(
         name=method_name,
         callback=callback,
         params=click_params,
         short_help=method_spec.get("description") or f"{http_method} operation",
     )
+    cmd.labels = _resolve_labels(method_spec)
+    return cmd
 
 
 def _make_plugin_callback(
@@ -717,7 +774,7 @@ def build_resource_group(
     methods: dict[str, Any] = resource_spec.get("methods", {})
     description = resource_spec.get("description", name)
 
-    group = click.Group(
+    group = LabeledGroup(
         name=name,
         short_help=description,
     )
