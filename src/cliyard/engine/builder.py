@@ -553,11 +553,11 @@ def _resolve_labels(method_spec: dict[str, Any]) -> list[str]:
 
 
 def _format_command_label(subcommand: str, cmd: click.Command) -> str:
-    """Build the display label for a command, prepending any labels."""
+    """Build the display label for a command, appending any labels."""
     labels: list[str] = getattr(cmd, "labels", None) or []
     if labels:
         badges = "".join(f"[{lb}]" for lb in labels)
-        return f"{badges} {subcommand}"
+        return f"{subcommand} {badges}"
     return subcommand
 
 
