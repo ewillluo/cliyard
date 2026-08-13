@@ -26,10 +26,15 @@ from fastapi.staticfiles import StaticFiles
 
 from cliyard.engine.loader import load_flows, load_service
 from cliyard.server.api import router as api_router
+from cliyard.server.executor import execution_manager
+from cliyard.server.history import DEFAULT_HISTORY_DB_PATH, HistoryStore
 
 # Project root: src/cliyard/server/app.py -> parents[3]
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _WEBUI_DIST = _PROJECT_ROOT / "webui" / "dist"
+
+# SQLite 执行历史库路径（测试可 monkeypatch 覆盖）。
+_HISTORY_DB = DEFAULT_HISTORY_DB_PATH
 
 # Vite dev server origins (see docs/cliyard-web design).
 _DEV_ORIGINS = [
@@ -73,6 +78,12 @@ def create_app(spec_dir: str | os.PathLike[str]) -> FastAPI:
 
     app.state.service = service
     app.state.spec_dir = str(spec_path)
+
+    # 执行历史存储：~/cliyard/serve_history.db（SQLite, WAL），注入
+    # app.state 供 /api/executions 使用，并传给 executor 单例在终态写库。
+    history_store = HistoryStore(_HISTORY_DB)
+    app.state.history_store = history_store
+    execution_manager.history_store = history_store
 
     app.add_middleware(
         CORSMiddleware,

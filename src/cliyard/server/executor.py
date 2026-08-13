@@ -45,6 +45,7 @@ from cliyard.engine.builder import execute_pipeline
 from cliyard.engine.loader import load_flows, load_service
 from cliyard.engine.orchestrator import _lookup_resource_method, run_flow
 from cliyard.server.context import build_service_context
+from cliyard.server.history import DEFAULT_HISTORY_DB_PATH, HistoryStore
 
 # 事件名固定顺序（供测试/前端参照）：命令 validate→auth→request→response→format→done
 # 事件统一格式：{"type": name, **payload, "time": iso}
@@ -152,9 +153,24 @@ class ExecutionManager:
     标记终态。注册表读写用 ``self._lock`` 保护。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, history_store: HistoryStore | None = None) -> None:
         self._executions: dict[str, Execution] = {}
         self._lock = threading.Lock()
+        self._history_store = history_store
+        self._history_lock = threading.Lock()
+
+    @property
+    def history_store(self) -> HistoryStore:
+        """执行历史存储（可注入；默认 None 时首次访问惰性创建）。"""
+        if self._history_store is None:
+            with self._history_lock:
+                if self._history_store is None:
+                    self._history_store = HistoryStore(DEFAULT_HISTORY_DB_PATH)
+        return self._history_store
+
+    @history_store.setter
+    def history_store(self, store: HistoryStore | None) -> None:
+        self._history_store = store
 
     # ------------------------------------------------------------------
     # 提交入口
@@ -351,6 +367,7 @@ class ExecutionManager:
         )
         with self._lock:
             self._executions[execution.id] = execution
+        self._safe_record_start(execution)
         return execution
 
     def _emit(self, execution: Execution, name: str, payload: dict[str, Any]) -> None:
@@ -374,7 +391,11 @@ class ExecutionManager:
         execution.queue.put(event)
 
     def _finish(self, execution: Execution) -> None:
-        """终态推送 ``done`` 事件并置位 done_event（任何路径都会走到）。"""
+        """终态推送 ``done`` 事件并置位 done_event（任何路径都会走到）。
+
+        顺序：先写历史库（record_finish 失败静默），再置位 done_event——
+        保证调用方 ``done_event.wait()`` 返回后历史记录已落库。
+        """
         event = {
             "type": "done",
             "time": _now_iso(),
@@ -384,7 +405,22 @@ class ExecutionManager:
         with self._lock:
             execution.steps.append(event)
         execution.queue.put(event)
+        self._safe_record_finish(execution)
         execution.done_event.set()
+
+    def _safe_record_start(self, execution: Execution) -> None:
+        """历史落 running 记录；任何异常静默吞掉（不阻塞执行流程）。"""
+        try:
+            self.history_store.record_start(execution)
+        except Exception:
+            pass
+
+    def _safe_record_finish(self, execution: Execution) -> None:
+        """历史落终态记录；任何异常静默吞掉（done 事件推送不受影响）。"""
+        try:
+            self.history_store.record_finish(execution)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # file 参数桥接
