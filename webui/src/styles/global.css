@@ -124,3 +124,57 @@ button {
   background-color: var(--neutral-100);
   color: var(--neutral-900);
 }
+
+/* outline 按钮：白底 + 1px 边框（同原型 .cliyard-outline-btn） */
+.cliyard-outline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  border: 1px solid var(--neutral-200);
+  background-color: #ffffff;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: calc(var(--space-sm) - 2px) var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--neutral-600);
+  font-family: var(--font-family-body);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.cliyard-outline-btn:hover {
+  border-color: var(--neutral-300);
+  background-color: var(--neutral-50);
+  color: var(--neutral-900);
+}
+
+/* 主按钮：品牌蓝纯色 + 白字 + 光晕（pill，同原型 .cliyard-pill-btn） */
+.cliyard-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  border: none;
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-600);
+  color: #ffffff;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  font-family: var(--font-family-body);
+  cursor: pointer;
+  box-shadow: var(--shadow-brand);
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cliyard-pill-btn:hover {
+  background-color: var(--brand-700);
+  box-shadow: none;
+}
+.cliyard-pill-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}

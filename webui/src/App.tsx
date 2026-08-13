@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import TopBar from "./components/TopBar";
 import CommandTree from "./components/CommandTree";
 import type { Selection } from "./components/CommandTree";
-import { fetchSpec } from "./api/client";
+import CommandForm from "./components/CommandForm";
+import StepsPanel from "./components/StepsPanel";
+import { execute, fetchSpec } from "./api/client";
 import type { SpecData } from "./api/client";
 import { neutral, space, radius, fontSize, fontFamily, shadow, statusColors } from "./styles/tokens";
 
@@ -17,24 +19,36 @@ const cardBase: CSSProperties = {
   boxShadow: shadow.sm,
 };
 
-/** 三栏占位标签（中/右面板 T10/T11 实现前占位） */
-function PanelPlaceholder({ title, note }: { title: string; note: string }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: space.sm }}>
-      <div style={{ fontSize: fontSize.md, fontWeight: 600, color: neutral[700], ...baseFont }}>{title}</div>
-      <div style={{ fontSize: fontSize.xs, color: neutral[400], ...baseFont }}>{note}</div>
-    </div>
-  );
+/** 从 spec 查选中命令/flow 的 JSON Schema（command: group.method；flow: command 匹配） */
+function schemaForSelection(spec: SpecData | null, selected: Selection | null): Record<string, unknown> | null {
+  if (!spec || !selected) return null;
+  if (selected.kind === "command") {
+    const [groupName, methodName] = selected.target.split(".");
+    const group = spec.groups.find((g) => g.group === groupName);
+    const command = group?.commands.find((c) => c.name === methodName);
+    return command?.schema ?? null;
+  }
+  const flow = spec.flows.find((f) => f.command === selected.target);
+  return flow?.params_schema ?? null;
+}
+
+/** 最近一次执行（供右侧「重新执行」复用 params） */
+interface LastRun {
+  kind: "command" | "flow";
+  target: string;
+  params: Record<string, unknown>;
 }
 
 /**
  * 应用外壳：顶栏 + 三栏
- * 左 240px（命令树，T9：fetchSpec + CommandTree）/ 中 320px（命令表单 T10）/ 右 flex-1（执行步骤/历史 T11）
+ * 左 240px 命令树 / 中 320px rjsf 表单 / 右 flex-1 执行步骤（SSE）+ 历史占位
  */
 export default function App() {
   const [spec, setSpec] = useState<SpecData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [executionId, setExecutionId] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +64,24 @@ export default function App() {
     };
   }, []);
 
+  const selectedSchema = useMemo(() => schemaForSelection(spec, selected), [spec, selected]);
+
+  const handleExecute = useCallback(
+    (id: string, params?: Record<string, unknown>) => {
+      if (!selected) return;
+      setLastRun({ kind: selected.kind, target: selected.target, params: params ?? {} });
+      setExecutionId(id);
+    },
+    [selected],
+  );
+
+  const handleReExecute = useCallback(() => {
+    if (!lastRun) return;
+    void execute(lastRun.kind, lastRun.target, lastRun.params).then(({ execution_id }) =>
+      setExecutionId(execution_id),
+    );
+  }, [lastRun]);
+
   return (
     <div
       style={{
@@ -64,7 +96,7 @@ export default function App() {
 
       {/* 内容区：三栏 */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", gap: space.lg, padding: space.xl }}>
-        {/* ① 命令树（T9） */}
+        {/* ① 命令树 */}
         <aside
           data-testid="command-tree"
           style={{ width: 240, flexShrink: 0, ...cardBase, padding: space.lg, overflowY: "auto" }}
@@ -80,15 +112,25 @@ export default function App() {
           )}
         </aside>
 
-        {/* ② 命令表单（T10） */}
-        <section data-testid="command-form" style={{ width: 320, flexShrink: 0, ...cardBase, padding: space.lg }}>
-          <PanelPlaceholder title="命令表单" note="T10 · rjsf 按 JSON Schema 渲染" />
-        </section>
+        {/* ② 命令表单 */}
+        {selected ? (
+          <CommandForm
+            kind={selected.kind}
+            target={selected.target}
+            schema={selectedSchema}
+            onExecute={handleExecute}
+          />
+        ) : (
+          <section
+            data-testid="command-form"
+            style={{ width: 320, flexShrink: 0, ...cardBase, padding: space.lg, ...baseFont }}
+          >
+            <div style={{ fontSize: fontSize.sm, color: neutral[400] }}>选择左侧命令或 flow 开始</div>
+          </section>
+        )}
 
-        {/* ③ 执行步骤 / 历史（T11） */}
-        <section data-testid="right-panel" style={{ minWidth: 0, flex: 1, ...cardBase, padding: space.lg }}>
-          <PanelPlaceholder title="执行步骤 / 历史记录" note="T11 · 执行时间线与历史表格" />
-        </section>
+        {/* ③ 执行步骤 / 历史 */}
+        <StepsPanel executionId={executionId} onReExecute={handleReExecute} />
       </div>
     </div>
   );
