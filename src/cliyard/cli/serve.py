@@ -7,23 +7,17 @@ Usage::
 
 Starts a FastAPI server that turns the spec directory into a browsable web
 interface (command tree, auto-generated forms, live execution steps, history).
+
+The startup logic lives in :mod:`cliyard.server.launcher` and is shared with
+the ``server`` sub-command that ``create_cli`` attaches to generated CLIs.
 """
 
 from __future__ import annotations
 
-import os
-import webbrowser
-
 import click
-import uvicorn
+import uvicorn  # noqa: F401  (kept as monkeypatch target for existing tests)
 
-from cliyard.server.app import create_app
-
-
-def _browser_url(host: str, port: int) -> str:
-    """Build a browser-addressable URL (0.0.0.0/:: -> 127.0.0.1)."""
-    display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
-    return f"http://{display_host}:{port}"
+from cliyard.server.launcher import run_server
 
 
 @click.command()
@@ -41,35 +35,4 @@ def serve(spec_dir: str, host: str, port: int, open: bool, reload: bool) -> None
     Turns the spec directory into a FastAPI-powered web interface with
     auto-generated forms, live execution steps, and execution history.
     """
-    url = _browser_url(host, port)
-
-    if reload:
-        # Validate the spec up front (fail fast, clean error).
-        _build_app_or_exit(spec_dir)
-        # uvicorn --reload needs an import string, not an app instance.
-        os.environ["CLIYARD_SPEC_DIR"] = spec_dir
-        if open:
-            webbrowser.open(url)
-        click.echo(f"Serve spec {spec_dir} at {url} (reload on)")
-        uvicorn.run(
-            "cliyard.server.app:create_app_from_env",
-            host=host,
-            port=port,
-            reload=True,
-            factory=True,
-        )
-        return
-
-    app = _build_app_or_exit(spec_dir)
-    if open:
-        webbrowser.open(url)
-    click.echo(f"Serve spec {spec_dir} at {url}")
-    uvicorn.run(app, host=host, port=port)
-
-
-def _build_app_or_exit(spec_dir: str):
-    """Build the app, converting invalid specs into a clean exit(1)."""
-    try:
-        return create_app(spec_dir)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    run_server(spec_dir, host=host, port=port, open_browser=open, reload=reload)
