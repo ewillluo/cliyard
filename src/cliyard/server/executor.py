@@ -256,7 +256,7 @@ class ExecutionManager:
         execution = self.get(execution_id)
         if execution is None:
             yield {
-                "event": "error",
+                "event": "message",
                 "data": json.dumps(
                     {"type": "error", "message": f"execution {execution_id} not found"},
                     ensure_ascii=False,
@@ -271,7 +271,7 @@ class ExecutionManager:
                     return
                 continue
             yield {
-                "event": event.get("type", "message"),
+                "event": "message",
                 "data": json.dumps(event, ensure_ascii=False),
             }
             if event.get("type") == "done":
