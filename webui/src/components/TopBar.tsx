@@ -16,7 +16,7 @@ const baseFont: CSSProperties = { fontFamily: fontFamily.body };
  * 顶栏：浅色白底 height 60（对齐原型 command-panel 顶栏）
  * 左：品牌 C 标 + 标题 + spec 副标题；右：运行状态 pill + 「认证」按钮
  */
-export default function TopBar() {
+export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
   return (
     <header
       data-testid="topbar"
@@ -103,7 +103,7 @@ export default function TopBar() {
           />
           运行中 · :8080
         </span>
-        <button type="button" className="cliyard-text-btn">
+        <button type="button" className="cliyard-text-btn" data-testid="auth-button" onClick={onAuthClick}>
           认证
         </button>
       </div>

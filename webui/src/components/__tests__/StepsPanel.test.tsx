@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import StepsPanel from "../StepsPanel";
-import { streamExecution } from "../../api/client";
+import { streamExecution, listExecutions } from "../../api/client";
 import type { ExecutionEvent } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
   streamExecution: vi.fn(),
   execute: vi.fn(),
+  listExecutions: vi.fn(),
+  clearExecutions: vi.fn(),
+  replayExecution: vi.fn(),
 }));
 
 const streamMock = vi.mocked(streamExecution);
@@ -74,6 +77,7 @@ function renderPanel(executionId: string | null = "exec-1", onReExecute = vi.fn(
 describe("StepsPanel", () => {
   beforeEach(() => {
     streamMock.mockReset();
+    vi.mocked(listExecutions).mockReset();
   });
 
   it("SSE 事件序列驱动渲染步骤卡片：validate→request→done 共 3 个，done 停止 loading", () => {
@@ -186,9 +190,28 @@ describe("StepsPanel", () => {
     expect(screen.getByText("执行命令后此处显示步骤流")).toBeInTheDocument();
   });
 
-  it("历史 tab 占位（T11 实现）", () => {
+  it("历史 tab 渲染执行历史列表（T11）", async () => {
+    vi.mocked(listExecutions).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: "e1",
+          created_at: "2026-08-13T14:23:01.204123+08:00",
+          kind: "command",
+          target: "repos.list",
+          status: "done",
+          duration_ms: 129,
+          result_preview: "",
+        },
+      ],
+    });
     renderPanel(null);
     fireEvent.click(screen.getAllByTestId("panel-tab")[1]);
-    expect(screen.getByText("历史记录 T11 实现")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("history-row")).toBeInTheDocument());
+    expect(screen.getByText("14:23:01")).toBeInTheDocument();
+    expect(screen.getByText("共 1 条 · 第 1 / 1 页")).toBeInTheDocument();
+    // tab bar 提供清空/刷新按钮
+    expect(screen.getByTestId("clear-history-button")).toBeInTheDocument();
+    expect(screen.getByTestId("refresh-history-button")).toBeInTheDocument();
   });
 });

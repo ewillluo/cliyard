@@ -5,6 +5,7 @@ import CommandTree from "./components/CommandTree";
 import type { Selection } from "./components/CommandTree";
 import CommandForm from "./components/CommandForm";
 import StepsPanel from "./components/StepsPanel";
+import AuthPanel from "./components/AuthPanel";
 import { execute, fetchSpec } from "./api/client";
 import type { SpecData } from "./api/client";
 import { neutral, space, radius, fontSize, fontFamily, shadow, statusColors } from "./styles/tokens";
@@ -49,6 +50,7 @@ export default function App() {
   const [selected, setSelected] = useState<Selection | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +77,12 @@ export default function App() {
     [selected],
   );
 
-  const handleReExecute = useCallback(() => {
+  /** 重新执行（id 来自历史重放时直接订阅；否则复用 lastRun params 重新提交） */
+  const handleReExecute = useCallback((id?: string) => {
+    if (id) {
+      setExecutionId(id);
+      return;
+    }
     if (!lastRun) return;
     void execute(lastRun.kind, lastRun.target, lastRun.params).then(({ execution_id }) =>
       setExecutionId(execution_id),
@@ -92,7 +99,8 @@ export default function App() {
         ...baseFont,
       }}
     >
-      <TopBar />
+      <TopBar onAuthClick={() => setAuthOpen(true)} />
+      <AuthPanel open={authOpen} onClose={() => setAuthOpen(false)} />
 
       {/* 内容区：三栏 */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", gap: space.lg, padding: space.xl }}>

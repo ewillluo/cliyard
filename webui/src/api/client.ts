@@ -66,7 +66,8 @@ export interface HistoryItem {
   kind: string;
   target: string;
   status: string;
-  duration_ms: number;
+  /** 终态才有耗时；running 等未完成执行返回 null */
+  duration_ms: number | null;
   result_preview: string;
 }
 

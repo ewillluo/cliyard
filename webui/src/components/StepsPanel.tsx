@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { streamExecution } from "../api/client";
 import type { ExecutionEvent } from "../api/client";
+import HistoryPanel from "./HistoryPanel";
+import type { HistoryPanelHandle } from "./HistoryPanel";
 import {
   brand,
   neutral,
@@ -24,7 +26,8 @@ const cardBase: CSSProperties = {
 
 export interface StepsPanelProps {
   executionId: string | null;
-  onReExecute: () => void;
+  /** 重新执行 / 历史重放：重放时回调新 execution_id（已切回「执行步骤」tab） */
+  onReExecute: (executionId?: string) => void;
 }
 
 /** 事件类型 → 中文标题 */
@@ -292,6 +295,16 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
   const [steps, setSteps] = useState<ExecutionEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const historyRef = useRef<HistoryPanelHandle>(null);
+
+  // 历史重放成功：切回「执行步骤」tab 并让父级订阅新 execution_id
+  const handleHistoryReplay = useCallback(
+    (newId: string) => {
+      setActiveTab("steps");
+      onReExecute(newId);
+    },
+    [onReExecute],
+  );
 
   useEffect(() => {
     if (!executionId) return;
@@ -403,7 +416,7 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
                 {badge}
               </span>
             )}
-            <button type="button" className="cliyard-outline-btn" data-testid="re-run-button" onClick={onReExecute}>
+            <button type="button" className="cliyard-outline-btn" data-testid="re-run-button" onClick={() => onReExecute()}>
               重新执行
             </button>
             <button type="button" className="cliyard-text-btn" data-testid="copy-button" onClick={handleCopy}>
@@ -423,7 +436,22 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: space.sm, paddingBottom: space.sm, paddingRight: space.sm }}>
-            <span style={{ fontSize: fontSize.xs, color: neutral[400], ...baseFont }}>T11 实现</span>
+            <button
+              type="button"
+              className="cliyard-outline-btn"
+              data-testid="clear-history-button"
+              onClick={() => void historyRef.current?.clear()}
+            >
+              清空记录
+            </button>
+            <button
+              type="button"
+              className="cliyard-outline-btn"
+              data-testid="refresh-history-button"
+              onClick={() => historyRef.current?.reload()}
+            >
+              刷新
+            </button>
           </div>
         )}
       </div>
@@ -563,7 +591,7 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
           </ol>
         )
       ) : (
-        <EmptyState text="历史记录 T11 实现" />
+        <HistoryPanel ref={historyRef} onReExecute={handleHistoryReplay} />
       )}
     </section>
   );
