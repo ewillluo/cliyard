@@ -43,9 +43,23 @@ export interface SpecData {
 }
 
 /** SSE 执行事件：{"type", **payload, "time"}（validate/auth/request/response/format/done/error） */
+export interface TableColumn {
+  name: string;
+  alias: string;
+}
+
+/** format 事件可选 table 字段：YAML output 定义的结构化表格数据（列头=alias，行=格式化值） */
+export interface TableData {
+  columns: TableColumn[];
+  rows: string[][];
+  total?: number;
+}
+
 export interface ExecutionEvent {
   type: string;
   time: string;
+  /** format 事件可选：仅当命令带 output.items_path + fields 时由后端填充 */
+  table?: TableData;
   [k: string]: unknown;
 }
 

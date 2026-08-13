@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import { streamExecution } from "../api/client";
-import type { ExecutionEvent } from "../api/client";
+import type { ExecutionEvent, TableColumn, TableData } from "../api/client";
 import HistoryPanel from "./HistoryPanel";
 import type { HistoryPanelHandle } from "./HistoryPanel";
 import type { CommandFormHandle } from "./CommandForm";
@@ -56,6 +56,8 @@ interface StepCard {
   isDoneEvent: boolean;
   lines: string[];
   mono: boolean;
+  /** format 事件的结构化表格数据（有 table 时渲染表格视图，可切换 JSON） */
+  table?: TableData;
 }
 
 /** 值渲染：对象/数组 → JSON 单行，其他 → 原样 */
@@ -162,6 +164,10 @@ function eventToCard(event: ExecutionEvent, index: number, isLast: boolean, load
       : (EVENT_TITLES[event.type] ?? event.type);
   const { lines, mono } = payloadToLines(event);
   const status: StepStatus = event.type === "error" ? "error" : isLast && loading ? "running" : "done";
+  const table =
+    event.type === "format" && event.table && event.table.columns.length > 0 && event.table.rows.length > 0
+      ? event.table
+      : undefined;
   return {
     key: `${index}-${event.type}`,
     title,
@@ -170,6 +176,7 @@ function eventToCard(event: ExecutionEvent, index: number, isLast: boolean, load
     isDoneEvent: event.type === "done",
     lines,
     mono,
+    table,
   };
 }
 
@@ -211,6 +218,150 @@ function MonoLine({ line }: { line: string }) {
       </>
     );
   return <>{line}</>;
+}
+
+/** 内容行渲染：mono=深色代码块（语法着色）/ 普通=浅色块（步骤说明） */
+function MonoBlock({ lines, mono }: { lines: string[]; mono: boolean }) {
+  if (mono)
+    return (
+      <pre
+        style={{
+          margin: 0,
+          overflowX: "auto",
+          backgroundColor: neutral[900],
+          padding: `${space.sm + 2}px ${space.md}px`,
+          fontFamily: fontFamily.mono,
+          fontSize: fontSize.xs,
+          lineHeight: 1.7,
+          color: "#6EE7B7",
+        }}
+      >
+        {lines.map((line, li) => (
+          <span key={li} style={{ display: "block", whiteSpace: "pre" }}>
+            <span
+              style={{
+                display: "inline-block",
+                width: 16,
+                marginRight: space.md,
+                textAlign: "right",
+                userSelect: "none",
+                color: neutral[600],
+              }}
+            >
+              {li + 1}
+            </span>
+            <MonoLine line={line} />
+          </span>
+        ))}
+      </pre>
+    );
+  return (
+    <pre style={{ margin: 0, overflowX: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
+      {lines.map((line, li) => (
+        <span
+          key={li}
+          style={{
+            display: "block",
+            whiteSpace: "pre",
+            color: line.startsWith(" ") ? neutral[500] : neutral[700],
+            fontWeight: line.startsWith(" ") ? 400 : 500,
+          }}
+        >
+          {line || "\u00A0"}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+/** 结果表格：白底 + neutral-200 边框圆角，表头 alias，数据行 hover 高亮，溢出横向滚动 */
+function ResultTable({ columns, rows }: { columns: TableColumn[]; rows: string[][] }) {
+  return (
+    <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: fontFamily.mono, fontSize: fontSize.xs }}>
+          <thead>
+            <tr style={{ backgroundColor: neutral[50] }}>
+              {columns.map((c, ci) => (
+                <th
+                  key={ci}
+                  style={{
+                    textAlign: "left",
+                    padding: `${space.sm}px ${space.md}px`,
+                    borderBottom: `1px solid ${neutral[200]}`,
+                    fontWeight: 600,
+                    color: neutral[700],
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {c.alias}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className="cliyard-table-row" style={{ borderBottom: `1px solid ${neutral[100]}` }}>
+                {row.map((cell, ci) => (
+                  <td key={ci} style={{ padding: `${space.sm}px ${space.md}px`, color: neutral[700], whiteSpace: "nowrap" }}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+    </div>
+  );
+}
+
+/** 格式化结果卡片主体：有 table 时表格/JSON 可切换（默认表格），JSON 回退到深色代码块 */
+function FormatCardBody({ table, lines }: { table: TableData; lines: string[] }) {
+  const [view, setView] = useState<"table" | "json">("table");
+  return (
+    <>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: `${space.xs}px ${space.sm}px`,
+          borderBottom: `1px solid ${neutral[200]}`,
+          backgroundColor: neutral[50],
+        }}
+      >
+        <span style={{ fontSize: fontSize.xs, color: neutral[500], ...baseFont }}>
+          {table.total !== undefined ? `共 ${String(table.total)} 条` : "表格视图"}
+        </span>
+        <div style={{ display: "flex", gap: space.xs }}>
+          {(["table", "json"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              data-testid={`format-view-${v}`}
+              data-active={view === v ? "true" : "false"}
+              onClick={() => setView(v)}
+              className="cliyard-text-btn"
+              style={{
+                padding: "1px 8px",
+                fontSize: fontSize.xs,
+                backgroundColor: view === v ? brand[50] : "transparent",
+                color: view === v ? brand[600] : neutral[500],
+                fontWeight: view === v ? 600 : 400,
+                borderRadius: radius.sm,
+              }}
+            >
+              {v === "table" ? "表格" : "JSON"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === "table" ? (
+        <ResultTable columns={table.columns} rows={table.rows} />
+      ) : (
+        <MonoBlock lines={lines} mono />
+      )}
+    </>
+  );
 }
 
 /** 步骤状态图标：成功=绿实心圆勾 / 完成（done）=品牌蓝实心圆勾 / 失败=红× / 运行中=呼吸蓝点 */
@@ -360,7 +511,8 @@ export default function StepsPanel({ executionId, onReExecute, formRef, submitti
       data-testid="right-panel"
       style={{ minWidth: 0, flex: 1, ...cardBase, display: "flex", flexDirection: "column", overflow: "hidden" }}
     >
-      <style>{`@keyframes cliyard-breathe { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+      <style>{`@keyframes cliyard-breathe { 0%,100%{opacity:1} 50%{opacity:.3} }
+.cliyard-table-row:hover { background-color: ${neutral[50]}; }`}</style>
 
       {/* tab bar */}
       <div
@@ -541,56 +693,9 @@ export default function StepsPanel({ executionId, onReExecute, formRef, submitti
                         </span>
                       )}
                     </div>
-                    {c.lines.length > 0 && (
+                    {(c.lines.length > 0 || c.table) && (
                       <div style={{ marginTop: space.sm, overflow: "hidden", borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: "#FFFFFF" }}>
-                        {c.mono ? (
-                          <pre
-                            style={{
-                              margin: 0,
-                              overflowX: "auto",
-                              backgroundColor: neutral[900],
-                              padding: `${space.sm + 2}px ${space.md}px`,
-                              fontFamily: fontFamily.mono,
-                              fontSize: fontSize.xs,
-                              lineHeight: 1.7,
-                              color: "#6EE7B7",
-                            }}
-                          >
-                            {c.lines.map((line, li) => (
-                              <span key={li} style={{ display: "block", whiteSpace: "pre" }}>
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    width: 16,
-                                    marginRight: space.md,
-                                    textAlign: "right",
-                                    userSelect: "none",
-                                    color: neutral[600],
-                                  }}
-                                >
-                                  {li + 1}
-                                </span>
-                                <MonoLine line={line} />
-                              </span>
-                            ))}
-                          </pre>
-                        ) : (
-                          <pre style={{ margin: 0, overflowX: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
-                            {c.lines.map((line, li) => (
-                              <span
-                                key={li}
-                                style={{
-                                  display: "block",
-                                  whiteSpace: "pre",
-                                  color: line.startsWith(" ") ? neutral[500] : neutral[700],
-                                  fontWeight: line.startsWith(" ") ? 400 : 500,
-                                }}
-                              >
-                                {line || "\u00A0"}
-                              </span>
-                            ))}
-                          </pre>
-                        )}
+                        {c.table ? <FormatCardBody table={c.table} lines={c.lines} /> : <MonoBlock lines={c.lines} mono={c.mono} />}
                       </div>
                     )}
                   </div>

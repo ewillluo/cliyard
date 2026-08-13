@@ -254,4 +254,61 @@ describe("StepsPanel", () => {
     expect(btn).toHaveTextContent("执行中…");
     expect(btn).toBeDisabled();
   });
+
+  it("format 事件带 table 时默认渲染表格视图（alias 列头 + 行值），可切换 JSON", () => {
+    const formatWithTable: ExecutionEvent = {
+      type: "format",
+      time: "2026-08-13T14:23:01.400123+08:00",
+      output_preview: '{"repos":[{"name":"a","type":"EVENTS"},{"name":"b","type":"LOGS"}]}',
+      table: {
+        columns: [
+          { name: "name", alias: "仓库名称" },
+          { name: "type", alias: "仓库类型" },
+        ],
+        rows: [
+          ["a", "EVENTS"],
+          ["b", "LOGS"],
+        ],
+        total: 2,
+      },
+    };
+    streamMock.mockImplementation((_id, onEvent) => {
+      [commandEvents[0], formatWithTable].forEach(onEvent);
+      return vi.fn();
+    });
+    renderPanel();
+
+    // 默认表格视图：alias 列头 + 行值 + total 提示
+    expect(screen.getByText("仓库名称")).toBeInTheDocument();
+    expect(screen.getByText("仓库类型")).toBeInTheDocument();
+    expect(screen.getByText("EVENTS")).toBeInTheDocument();
+    expect(screen.getByText("LOGS")).toBeInTheDocument();
+    expect(screen.getByText("共 2 条")).toBeInTheDocument();
+
+    // 切换 JSON → 显示 output_preview 文本，表格消失
+    fireEvent.click(screen.getByTestId("format-view-json"));
+    expect(screen.getByText(/"repos"/)).toBeInTheDocument();
+    expect(screen.queryByText("仓库名称")).not.toBeInTheDocument();
+
+    // 切回表格
+    fireEvent.click(screen.getByTestId("format-view-table"));
+    expect(screen.getByText("仓库名称")).toBeInTheDocument();
+  });
+
+  it("format 事件无 table 时保持纯 JSON 深色代码块", () => {
+    const formatPlain: ExecutionEvent = {
+      type: "format",
+      time: "2026-08-13T14:23:01.400123+08:00",
+      output_preview: '{"items":[{"name":"a"}]}',
+    };
+    streamMock.mockImplementation((_id, onEvent) => {
+      [commandEvents[0], formatPlain].forEach(onEvent);
+      return vi.fn();
+    });
+    renderPanel();
+
+    expect(screen.queryByText("表格")).not.toBeInTheDocument();
+    expect(screen.queryByText("JSON")).not.toBeInTheDocument();
+    expect(screen.getByText(/"items"/)).toBeInTheDocument();
+  });
 });
