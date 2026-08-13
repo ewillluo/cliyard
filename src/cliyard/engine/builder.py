@@ -23,7 +23,7 @@ from typing import Any, Callable
 import click
 
 from cliyard.engine.flow import FlowSpec
-from cliyard.server.redact import redact_sensitive
+from cliyard.server.redact import is_sensitive_key, redact_sensitive
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +502,13 @@ def execute_pipeline(
         if _fmt_hooks:
             data = run_post_response_hooks(_fmt_hooks, data)
 
-        _emit_event(event_cb, "format", {"output_preview": _json_preview(redact_sensitive(data))})
+        format_payload: dict[str, Any] = {
+            "output_preview": _json_preview(redact_sensitive(data))
+        }
+        table_payload = _build_table_payload(data)
+        if table_payload is not None:
+            format_payload["table"] = table_payload
+        _emit_event(event_cb, "format", format_payload)
         return data
 
     _emit_event(event_cb, "format", {"output_preview": _json_preview(redact_sensitive(resp_data))})
@@ -521,6 +527,46 @@ def _emit_event(
         event_cb(name, payload)
     except Exception:
         pass
+
+
+def _build_table_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the structured ``table`` field for the ``format`` event payload.
+
+    Only emitted when the pipeline ran the ``items_path`` branch and the
+    parsed data carries both a non-empty item list and field definitions.
+    Columns expose the YAML ``alias`` (falling back to ``name``); cell values
+    are redacted (sensitive keys → ``***``) before extraction and rendered
+    through :func:`cliyard.output.formatter._format_field_value` so that
+    ``format: datetime`` conversion applies in the table view too.
+
+    Returns ``None`` when there is nothing table-shaped to show (caller keeps
+    the JSON-only payload, preserving backward compatibility).
+    """
+    items = data.get("items")
+    fields = data.get("fields") or []
+    if not isinstance(items, list) or not fields:
+        return None
+
+    columns = [
+        {
+            "name": "***" if is_sensitive_key(f.get("name")) else f.get("name"),
+            "alias": (
+                "***"
+                if is_sensitive_key(f.get("alias") or f.get("name"))
+                else (f.get("alias") or f.get("name"))
+            ),
+        }
+        for f in fields
+    ]
+
+    from cliyard.output.formatter import _format_field_value
+
+    redacted_items = redact_sensitive(items)
+    rows = [
+        [_format_field_value(redacted_item.get(f.get("name")), f) for f in fields]
+        for redacted_item in redacted_items
+    ]
+    return {"columns": columns, "rows": rows, "total": data.get("total")}
 
 
 def _json_preview(obj: Any, limit: int = 2000) -> str:

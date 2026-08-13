@@ -130,6 +130,128 @@ def test_format_output_preview_redacted_without_items_path():
     assert '"token": "***"' in preview
     assert "SECRET123" not in preview
     assert '"name": "ok"' in preview
+    # 无 items_path 分支：format 事件不携带 table 字段
+    assert "table" not in format_event
+
+
+def test_format_event_carries_structured_table():
+    """items_path 分支：format 事件携带 table（columns=alias 列头 / rows / total）。"""
+    method_spec, resource_spec, service_ctx = _make_context()
+    method_spec["output"] = {
+        "items_path": "$.repos",
+        "fields": [
+            {"name": "name", "alias": "仓库名称"},
+            {"name": "type", "alias": "类型"},
+        ],
+    }
+    client = MockHttpClient(
+        payload={
+            "repos": [
+                {"name": "a", "type": "EVENTS"},
+                {"name": "b", "type": "LOGS"},
+            ]
+        }
+    )
+
+    events: list = []
+    execute_pipeline(
+        {},
+        method_spec,
+        resource_spec,
+        service_ctx,
+        http_client=client,
+        event_cb=lambda name, payload: events.append((name, payload)),
+    )
+
+    format_event = [payload for name, payload in events if name == "format"][0]
+    assert "output_preview" in format_event
+    table = format_event["table"]
+    assert table["columns"] == [
+        {"name": "name", "alias": "仓库名称"},
+        {"name": "type", "alias": "类型"},
+    ]
+    assert table["rows"] == [["a", "EVENTS"], ["b", "LOGS"]]
+    assert table["total"] == 2
+
+
+def test_format_event_table_no_table_when_fields_empty():
+    """items_path 分支但 fields 为空：format 事件不携带 table 字段。"""
+    method_spec, resource_spec, service_ctx = _make_context()
+    # _make_context 的 output 已是 items_path + fields: []
+    client = MockHttpClient(payload={"data": [{"name": "a"}]})
+
+    events: list = []
+    execute_pipeline(
+        {},
+        method_spec,
+        resource_spec,
+        service_ctx,
+        http_client=client,
+        event_cb=lambda name, payload: events.append((name, payload)),
+    )
+
+    format_event = [payload for name, payload in events if name == "format"][0]
+    assert "output_preview" in format_event
+    assert "table" not in format_event
+
+
+def test_format_event_table_applies_field_format():
+    """table 行值复用 _format_field_value：format: datetime 转换生效。"""
+    from datetime import datetime
+
+    method_spec, resource_spec, service_ctx = _make_context()
+    method_spec["output"] = {
+        "items_path": "$.items",
+        "fields": [
+            {"name": "name", "alias": "名称"},
+            {"name": "ts", "alias": "时间", "format": "datetime"},
+        ],
+    }
+    client = MockHttpClient(payload={"items": [{"name": "x", "ts": 1700000000000}]})
+
+    events: list = []
+    execute_pipeline(
+        {},
+        method_spec,
+        resource_spec,
+        service_ctx,
+        http_client=client,
+        event_cb=lambda name, payload: events.append((name, payload)),
+    )
+
+    table = [payload for name, payload in events if name == "format"][0]["table"]
+    expected = datetime.fromtimestamp(1700000000).strftime("%Y-%m-%d %H:%M:%S")
+    assert table["rows"] == [["x", expected]]
+
+
+def test_format_event_table_redacts_sensitive_values():
+    """table 行值/列名含敏感键时脱敏为 ***（token 值不流出）。"""
+    import json
+
+    method_spec, resource_spec, service_ctx = _make_context()
+    method_spec["output"] = {
+        "items_path": "$.items",
+        "fields": [
+            {"name": "name", "alias": "名称"},
+            {"name": "token", "alias": "令牌"},
+        ],
+    }
+    client = MockHttpClient(payload={"items": [{"name": "a", "token": "SECRET123"}]})
+
+    events: list = []
+    execute_pipeline(
+        {},
+        method_spec,
+        resource_spec,
+        service_ctx,
+        http_client=client,
+        event_cb=lambda name, payload: events.append((name, payload)),
+    )
+
+    table = [payload for name, payload in events if name == "format"][0]["table"]
+    # 行值：token 字段被 redact_sensitive 替换
+    assert table["rows"] == [["a", "***"]]
+    assert "SECRET123" not in json.dumps(table)
 
 
 def test_run_flow_step_callback():
