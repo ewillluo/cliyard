@@ -96,7 +96,8 @@ export default function App() {
       style={{
         display: "flex",
         flexDirection: "column",
-        minHeight: "100%",
+        height: "100%",
+        overflow: "hidden",
         backgroundColor: neutral[50],
         ...baseFont,
       }}
