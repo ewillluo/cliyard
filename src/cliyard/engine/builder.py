@@ -15,12 +15,15 @@ a standalone function that can be tested and evolved independently.
 
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import click
 
 from cliyard.engine.flow import FlowSpec
+from cliyard.server.redact import redact_sensitive
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +289,7 @@ def execute_pipeline(
     http_client: Any = None,
     raw_response: bool = False,
     base_url_override: str | None = None,
+    event_cb: Callable[[str, dict], None] | None = None,
 ) -> dict[str, Any] | str:
     """Execute the full request pipeline and return response data.
 
@@ -296,6 +300,11 @@ def execute_pipeline(
         raw_response: If ``True``, return the raw JSON response dict instead
             of the parsed ``{items, total, fields}`` format.  Used by the
             flow orchestrator for JSONPath extraction.
+        event_cb: Optional ``(event_name, payload)`` callback invoked at key
+            pipeline stages — ``"validate"``, ``"auth"``, ``"request"``,
+            ``"response"``, ``"format"``.  Payloads are pre-redacted (no
+            sensitive values leak).  Exceptions raised by the callback are
+            swallowed and never affect pipeline execution.  Default ``None``.
 
     Returns:
         Parsed response data dict (``{items, total, fields}``) by default,
@@ -316,6 +325,18 @@ def execute_pipeline(
         method_spec.setdefault("http", {})["path"] = resource_spec.get("path", resource_name)
 
     validated = bind_and_validate(kwargs, method_spec)
+
+    # Stage: validate — expose validated params grouped by HTTP location (redacted)
+    _emit_event(
+        event_cb,
+        "validate",
+        {
+            "params": {
+                _loc: redact_sensitive(getattr(validated, _loc))
+                for _loc in ("argument", "path", "query", "header", "body")
+            }
+        },
+    )
 
     # Read file-type params (skip for multipart — files stay as paths)
     _is_multipart = method_spec.get("body_type") == "multipart"
@@ -368,6 +389,14 @@ def execute_pipeline(
     merged_params.update(getattr(validated, "argument"))
 
     # Auth chain (skip if a pre-configured client was provided)
+    _emit_event(
+        event_cb,
+        "auth",
+        {
+            "mode": "preconfigured" if http_client is not None else "chain",
+            "pre_filled_keys": list((service_ctx.pre_filled_auth or {}).keys()),
+        },
+    )
     if http_client is None:
         _base = base_url_override or service_ctx.base_url
         if service_ctx.auth_spec:
@@ -392,6 +421,18 @@ def execute_pipeline(
         prefix=service_ctx.prefix,
     )
 
+    _emit_event(
+        event_cb,
+        "request",
+        {
+            "method": req.method,
+            "url": req.url,
+            "headers": redact_sensitive(req.headers),
+            "query_params": redact_sensitive(req.query_params),
+            "body": redact_sensitive(req.body),
+        },
+    )
+
     # Stage 4: run pre-request hooks
     hooks_config = method_spec.get("hooks", {})
     _pre_hooks = hooks_config.get("pre-request", [])
@@ -399,6 +440,7 @@ def execute_pipeline(
         req = run_pre_request_hooks(_pre_hooks, req)
 
     _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
+    _req_started = time.perf_counter()
     response = http_client.request(
         method=req.method,
         url=req.url,
@@ -407,6 +449,16 @@ def execute_pipeline(
         headers=req.headers,
         files=req.files,
         timeout=_timeout,
+    )
+    _elapsed_ms = int((time.perf_counter() - _req_started) * 1000)
+
+    _emit_event(
+        event_cb,
+        "response",
+        {
+            "status_code": getattr(response, "status_code", None),
+            "elapsed_ms": _elapsed_ms,
+        },
     )
 
     if method_spec.get("response_type") == "file":
@@ -450,9 +502,34 @@ def execute_pipeline(
         if _fmt_hooks:
             data = run_post_response_hooks(_fmt_hooks, data)
 
+        _emit_event(event_cb, "format", {"output_preview": _json_preview(data)})
         return data
 
+    _emit_event(event_cb, "format", {"output_preview": _json_preview(resp_data)})
     return resp_data
+
+
+def _emit_event(
+    event_cb: Callable[[str, dict], None] | None,
+    name: str,
+    payload: dict[str, Any],
+) -> None:
+    """Invoke *event_cb* with ``(name, payload)``; swallow callback errors."""
+    if event_cb is None:
+        return
+    try:
+        event_cb(name, payload)
+    except Exception:
+        pass
+
+
+def _json_preview(obj: Any, limit: int = 2000) -> str:
+    """Render *obj* as compact JSON truncated to *limit* characters."""
+    try:
+        text = json.dumps(obj, ensure_ascii=False, default=str)
+    except Exception:
+        text = repr(obj)
+    return text[:limit]
 
 
 def _make_callback(
