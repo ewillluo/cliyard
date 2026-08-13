@@ -44,6 +44,50 @@ const spec: SpecData = {
 
 const emptySpec: SpecData = { service: { name: "demo", description: "" }, groups: [], flows: [] };
 
+/** mock spec：2 个同名分组（templates）——模拟 /api/spec 重复 group 名（合法输入） */
+const dupGroupSpec: SpecData = {
+  service: { name: "demo", description: "演示服务" },
+  groups: [
+    {
+      group: "templates",
+      desc: "模板分组 A",
+      commands: [
+        {
+          name: "list",
+          labels: [],
+          desc: "列出模板 A",
+          path: "templates",
+          method: "GET",
+          schema: { type: "object", properties: {} },
+        },
+      ],
+    },
+    {
+      group: "templates",
+      desc: "模板分组 B",
+      commands: [
+        {
+          name: "create",
+          labels: [],
+          desc: "创建模板 B",
+          path: "templates",
+          method: "POST",
+          schema: { type: "object", properties: {} },
+        },
+      ],
+    },
+  ],
+  flows: [
+    {
+      name: "add_user",
+      description: "新增用户",
+      command: "add-user",
+      params_schema: { type: "object", properties: {} },
+      step_count: 2,
+    },
+  ],
+};
+
 function renderTree(selected: Selection | null = null, onSelect = vi.fn()) {
   return render(<CommandTree spec={spec} selected={selected} onSelect={onSelect} />);
 }
@@ -126,6 +170,27 @@ describe("CommandTree", () => {
     const [list, deleteBtn] = screen.getAllByTestId("tree-item");
     expect(list.getAttribute("data-active")).toBe("true");
     expect(deleteBtn.getAttribute("data-active")).toBe("false");
+  });
+
+  it("重复分组名（合法输入）：命令/Flow 反复切换无命令项泄漏", () => {
+    render(<CommandTree spec={dupGroupSpec} selected={null} onSelect={vi.fn()} />);
+    const tabs = screen.getAllByTestId("side-tab");
+
+    // 命令 tab：同名分组各渲染一次，命令项全部可见
+    expect(screen.getByText("模板分组 A")).toBeInTheDocument();
+    expect(screen.getByText("模板分组 B")).toBeInTheDocument();
+    expect(screen.getAllByTestId("tree-item")).toHaveLength(2);
+
+    for (let i = 0; i < 5; i++) {
+      // 切到 Flow：flow 容器内无命令项（tree-item）泄漏
+      fireEvent.click(tabs[1]);
+      expect(screen.queryAllByTestId("tree-item")).toHaveLength(0);
+      expect(screen.getAllByTestId("flow-item")).toHaveLength(1);
+
+      // 切回命令：命令项数量稳定，不随切换累积
+      fireEvent.click(tabs[0]);
+      expect(screen.getAllByTestId("tree-item")).toHaveLength(2);
+    }
   });
 
   it("空 spec 显示空态「无命令」/「无 flow」", () => {

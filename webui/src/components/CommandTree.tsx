@@ -261,8 +261,8 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
           <EmptyState text="无命令" />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: space.lg }}>
-            {filteredGroups.map((g) => (
-              <div key={g.group}>
+            {filteredGroups.map((g, i) => (
+              <div key={`${g.group}-${i}`}>
                 {/* 分组标题：uppercase 小字灰 + 右侧分组描述 */}
                 <div
                   style={{
