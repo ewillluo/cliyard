@@ -502,10 +502,10 @@ def execute_pipeline(
         if _fmt_hooks:
             data = run_post_response_hooks(_fmt_hooks, data)
 
-        _emit_event(event_cb, "format", {"output_preview": _json_preview(data)})
+        _emit_event(event_cb, "format", {"output_preview": _json_preview(redact_sensitive(data))})
         return data
 
-    _emit_event(event_cb, "format", {"output_preview": _json_preview(resp_data)})
+    _emit_event(event_cb, "format", {"output_preview": _json_preview(redact_sensitive(resp_data))})
     return resp_data
 
 

@@ -108,6 +108,30 @@ def test_sensitive_values_redacted_in_events():
     assert request["headers"]["X-Api-Key"] == "***"
 
 
+def test_format_output_preview_redacted_without_items_path():
+    """format event output_preview redacts token even when no items_path (raw response)."""
+    method_spec, resource_spec, service_ctx = _make_context()
+    # Drop items_path so the pipeline takes the raw-response format branch (line 508).
+    method_spec["output"] = {"fields": []}
+    client = MockHttpClient(payload={"token": "SECRET123", "name": "ok"})
+
+    events: list = []
+    execute_pipeline(
+        {},
+        method_spec,
+        resource_spec,
+        service_ctx,
+        http_client=client,
+        event_cb=lambda name, payload: events.append((name, payload)),
+    )
+
+    format_event = [payload for name, payload in events if name == "format"][0]
+    preview = format_event["output_preview"]
+    assert '"token": "***"' in preview
+    assert "SECRET123" not in preview
+    assert '"name": "ok"' in preview
+
+
 def test_run_flow_step_callback():
     """run_flow emits step_start / step_done per step and one flow_end."""
     flow_spec = FlowSpec(
