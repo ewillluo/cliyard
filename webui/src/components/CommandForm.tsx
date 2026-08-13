@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
@@ -85,11 +85,20 @@ function flattenFileParams(data: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
+/** 暴露给父级（StepsPanel 底部按钮）的句柄 */
+export interface CommandFormHandle {
+  submit: () => void;
+}
+
 /**
  * 中间表单：rjsf 按选中命令/flow 的 JSON Schema 自动渲染。
  * 提交调 POST /api/execute，拿到 execution_id 后回调父级（App 传给 StepsPanel 订阅 SSE）。
+ * forwardRef 暴露 submit() 供 StepsPanel 底部固定按钮调用。
  */
-export default function CommandForm({ kind, target, schema, onExecute }: CommandFormProps) {
+const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function CommandForm(
+  { kind, target, schema, onExecute },
+  ref,
+) {
   const formRef = useRef<Form>(null);
   const [formKey, setFormKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -113,6 +122,16 @@ export default function CommandForm({ kind, target, schema, onExecute }: Command
       setSubmitting(false);
     }
   };
+
+  useImperativeHandle(ref, () => ({
+    submit() {
+      if (empty) {
+        void run({});
+      } else {
+        formRef.current?.submit();
+      }
+    },
+  }));
 
   return (
     <section
@@ -237,4 +256,6 @@ export default function CommandForm({ kind, target, schema, onExecute }: Command
       </div>
     </section>
   );
-}
+});
+
+export default CommandForm;

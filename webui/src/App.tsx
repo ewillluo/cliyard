@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import TopBar from "./components/TopBar";
 import CommandTree from "./components/CommandTree";
 import type { Selection } from "./components/CommandTree";
 import CommandForm from "./components/CommandForm";
+import type { CommandFormHandle } from "./components/CommandForm";
 import StepsPanel from "./components/StepsPanel";
 import AuthPanel from "./components/AuthPanel";
 import { execute, fetchSpec } from "./api/client";
@@ -51,6 +52,7 @@ export default function App() {
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const formRef = useRef<CommandFormHandle>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +125,7 @@ export default function App() {
         {/* ② 命令表单 */}
         {selected ? (
           <CommandForm
+            ref={formRef}
             kind={selected.kind}
             target={selected.target}
             schema={selectedSchema}
@@ -138,7 +141,7 @@ export default function App() {
         )}
 
         {/* ③ 执行步骤 / 历史 */}
-        <StepsPanel executionId={executionId} onReExecute={handleReExecute} />
+        <StepsPanel executionId={executionId} onReExecute={handleReExecute} formRef={formRef} />
       </div>
     </div>
   );

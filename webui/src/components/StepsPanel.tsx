@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { streamExecution } from "../api/client";
 import type { ExecutionEvent } from "../api/client";
 import HistoryPanel from "./HistoryPanel";
 import type { HistoryPanelHandle } from "./HistoryPanel";
+import type { CommandFormHandle } from "./CommandForm";
 import {
   brand,
   neutral,
@@ -26,8 +27,9 @@ const cardBase: CSSProperties = {
 
 export interface StepsPanelProps {
   executionId: string | null;
-  /** 重新执行 / 历史重放：重放时回调新 execution_id（已切回「执行步骤」tab） */
   onReExecute: (executionId?: string) => void;
+  formRef?: RefObject<CommandFormHandle | null>;
+  submitting?: boolean;
 }
 
 /** 事件类型 → 中文标题 */
@@ -290,12 +292,14 @@ function EmptyState({ text }: { text: string }) {
  * 右侧执行步骤面板：SSE 事件流 → 步骤时间线。
  * executionId 变化时重新订阅（done/error 自动收尾），卸载时断开。
  */
-export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps) {
+export default function StepsPanel({ executionId, onReExecute, formRef, submitting: externalSubmitting }: StepsPanelProps) {
   const [activeTab, setActiveTab] = useState<"steps" | "history">("steps");
   const [steps, setSteps] = useState<ExecutionEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
   const historyRef = useRef<HistoryPanelHandle>(null);
+  const isSubmitting = externalSubmitting ?? localSubmitting;
 
   // 历史重放成功：切回「执行步骤」tab 并让父级订阅新 execution_id
   const handleHistoryReplay = useCallback(
@@ -352,7 +356,10 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
   };
 
   return (
-    <section data-testid="right-panel" style={{ minWidth: 0, flex: 1, ...cardBase, overflowY: "auto" }}>
+    <section
+      data-testid="right-panel"
+      style={{ minWidth: 0, flex: 1, ...cardBase, display: "flex", flexDirection: "column", overflow: "hidden" }}
+    >
       <style>{`@keyframes cliyard-breathe { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
 
       {/* tab bar */}
@@ -457,141 +464,173 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
       </div>
 
       {activeTab === "steps" ? (
-        cards.length === 0 ? (
-          <EmptyState text={executionId ? "等待执行事件…" : "执行命令后此处显示步骤流"} />
-        ) : (
-          <ol style={{ display: "flex", flexDirection: "column", margin: 0, padding: space.lg, listStyle: "none" }}>
-            {cards.map((c, i) => (
-              <li key={c.key} style={{ position: "relative", display: "flex", gap: space.md, paddingBottom: space.lg }}>
-                {i !== cards.length - 1 && (
-                  <span aria-hidden style={{ position: "absolute", left: 11.5, top: 26, bottom: 0, width: 1, backgroundColor: neutral[200] }} />
-                )}
-                <StepIcon status={c.status} isDoneEvent={c.isDoneEvent} />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: space.sm }}>
-                    <span style={{ fontSize: fontSize.sm, fontWeight: 600, color: c.status === "error" ? statusColors.error.color : neutral[800] }}>
-                      {c.title}
-                    </span>
-                    <span
-                      style={{
-                        borderRadius: radius.sm,
-                        backgroundColor: neutral[100],
-                        padding: "2px 6px",
-                        fontFamily: fontFamily.mono,
-                        fontSize: fontSize.xs,
-                        color: neutral[500],
-                      }}
-                    >
-                      {c.time}
-                    </span>
-                    {c.status === "error" && (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: space.xs,
-                          padding: "1px 8px",
-                          borderRadius: radius.pill,
-                          backgroundColor: statusColors.error.bg,
-                          border: `1px solid ${statusColors.error.border}`,
-                          color: statusColors.error.color,
-                          fontSize: fontSize.xs,
-                          fontWeight: 500,
-                          ...baseFont,
-                        }}
-                      >
-                        失败
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {cards.length === 0 ? (
+            <EmptyState text={executionId ? "等待执行事件…" : "执行命令后此处显示步骤流"} />
+          ) : (
+            <ol style={{ display: "flex", flexDirection: "column", margin: 0, padding: space.lg, listStyle: "none" }}>
+              {cards.map((c, i) => (
+                <li key={c.key} style={{ position: "relative", display: "flex", gap: space.md, paddingBottom: space.lg }}>
+                  {i !== cards.length - 1 && (
+                    <span aria-hidden style={{ position: "absolute", left: 11.5, top: 26, bottom: 0, width: 1, backgroundColor: neutral[200] }} />
+                  )}
+                  <StepIcon status={c.status} isDoneEvent={c.isDoneEvent} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: space.sm }}>
+                      <span style={{ fontSize: fontSize.sm, fontWeight: 600, color: c.status === "error" ? statusColors.error.color : neutral[800] }}>
+                        {c.title}
                       </span>
-                    )}
-                    {c.status === "running" && (
                       <span
                         style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: space.xs,
-                          padding: "1px 8px",
-                          borderRadius: radius.pill,
-                          backgroundColor: statusColors.running.bg,
-                          border: `1px solid ${statusColors.running.border}`,
-                          color: statusColors.running.color,
+                          borderRadius: radius.sm,
+                          backgroundColor: neutral[100],
+                          padding: "2px 6px",
+                          fontFamily: fontFamily.mono,
                           fontSize: fontSize.xs,
-                          fontWeight: 500,
-                          ...baseFont,
+                          color: neutral[500],
                         }}
                       >
+                        {c.time}
+                      </span>
+                      {c.status === "error" && (
                         <span
-                          aria-hidden
                           style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: "50%",
-                            backgroundColor: statusColors.running.color,
-                            animation: "cliyard-breathe 1.2s ease-in-out infinite",
-                          }}
-                        />
-                        执行中
-                      </span>
-                    )}
-                  </div>
-                  {c.lines.length > 0 && (
-                    <div style={{ marginTop: space.sm, overflow: "hidden", borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: "#FFFFFF" }}>
-                      {c.mono ? (
-                        <pre
-                          style={{
-                            margin: 0,
-                            overflowX: "auto",
-                            backgroundColor: neutral[900],
-                            padding: `${space.sm + 2}px ${space.md}px`,
-                            fontFamily: fontFamily.mono,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: space.xs,
+                            padding: "1px 8px",
+                            borderRadius: radius.pill,
+                            backgroundColor: statusColors.error.bg,
+                            border: `1px solid ${statusColors.error.border}`,
+                            color: statusColors.error.color,
                             fontSize: fontSize.xs,
-                            lineHeight: 1.7,
-                            color: "#6EE7B7",
+                            fontWeight: 500,
+                            ...baseFont,
                           }}
                         >
-                          {c.lines.map((line, li) => (
-                            <span key={li} style={{ display: "block", whiteSpace: "pre" }}>
-                              <span
-                                style={{
-                                  display: "inline-block",
-                                  width: 16,
-                                  marginRight: space.md,
-                                  textAlign: "right",
-                                  userSelect: "none",
-                                  color: neutral[600],
-                                }}
-                              >
-                                {li + 1}
-                              </span>
-                              <MonoLine line={line} />
-                            </span>
-                          ))}
-                        </pre>
-                      ) : (
-                        <pre style={{ margin: 0, overflowX: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
-                          {c.lines.map((line, li) => (
-                            <span
-                              key={li}
-                              style={{
-                                display: "block",
-                                whiteSpace: "pre",
-                                color: line.startsWith(" ") ? neutral[500] : neutral[700],
-                                fontWeight: line.startsWith(" ") ? 400 : 500,
-                              }}
-                            >
-                              {line || "\u00A0"}
-                            </span>
-                          ))}
-                        </pre>
+                          失败
+                        </span>
+                      )}
+                      {c.status === "running" && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: space.xs,
+                            padding: "1px 8px",
+                            borderRadius: radius.pill,
+                            backgroundColor: statusColors.running.bg,
+                            border: `1px solid ${statusColors.running.border}`,
+                            color: statusColors.running.color,
+                            fontSize: fontSize.xs,
+                            fontWeight: 500,
+                            ...baseFont,
+                          }}
+                        >
+                          <span
+                            aria-hidden
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: "50%",
+                              backgroundColor: statusColors.running.color,
+                              animation: "cliyard-breathe 1.2s ease-in-out infinite",
+                            }}
+                          />
+                          执行中
+                        </span>
                       )}
                     </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )
+                    {c.lines.length > 0 && (
+                      <div style={{ marginTop: space.sm, overflow: "hidden", borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: "#FFFFFF" }}>
+                        {c.mono ? (
+                          <pre
+                            style={{
+                              margin: 0,
+                              overflowX: "auto",
+                              backgroundColor: neutral[900],
+                              padding: `${space.sm + 2}px ${space.md}px`,
+                              fontFamily: fontFamily.mono,
+                              fontSize: fontSize.xs,
+                              lineHeight: 1.7,
+                              color: "#6EE7B7",
+                            }}
+                          >
+                            {c.lines.map((line, li) => (
+                              <span key={li} style={{ display: "block", whiteSpace: "pre" }}>
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    width: 16,
+                                    marginRight: space.md,
+                                    textAlign: "right",
+                                    userSelect: "none",
+                                    color: neutral[600],
+                                  }}
+                                >
+                                  {li + 1}
+                                </span>
+                                <MonoLine line={line} />
+                              </span>
+                            ))}
+                          </pre>
+                        ) : (
+                          <pre style={{ margin: 0, overflowX: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
+                            {c.lines.map((line, li) => (
+                              <span
+                                key={li}
+                                style={{
+                                  display: "block",
+                                  whiteSpace: "pre",
+                                  color: line.startsWith(" ") ? neutral[500] : neutral[700],
+                                  fontWeight: line.startsWith(" ") ? 400 : 500,
+                                }}
+                              >
+                                {line || "\u00A0"}
+                              </span>
+                            ))}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       ) : (
-        <HistoryPanel ref={historyRef} onReExecute={handleHistoryReplay} />
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          <HistoryPanel ref={historyRef} onReExecute={handleHistoryReplay} />
+        </div>
+      )}
+
+      {activeTab === "steps" && (
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: space.sm,
+            borderTop: `1px solid ${neutral[100]}`,
+            padding: `${space.sm}px ${space.lg}px`,
+          }}
+        >
+          <button
+            type="button"
+            data-testid="bottom-run-button"
+            className="cliyard-pill-btn"
+            disabled={isSubmitting}
+            onClick={() => {
+              setLocalSubmitting(true);
+              formRef?.current?.submit();
+              setTimeout(() => setLocalSubmitting(false), 800);
+            }}
+            style={{ flex: 1, padding: `${space.sm + 2}px ${space.lg}px` }}
+          >
+            {isSubmitting ? "执行中…" : "执行"}
+          </button>
+        </div>
       )}
     </section>
   );
