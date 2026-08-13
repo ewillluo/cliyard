@@ -44,7 +44,7 @@ function flowParamCount(flow: Flow): number {
 /** 树项/flow 项的 hover 与选中样式（token 值注入，前缀 cliyard- 避免污染） */
 const treeCss = `
   .cliyard-tree-item {
-    position: relative; display: flex; align-items: center; gap: ${space.sm}px;
+    position: relative; display: flex; flex-direction: column; gap: 2px;
     width: 100%; padding: ${space.sm - 2}px ${space.md}px ${space.sm - 2}px ${space.md + 4}px;
     border: none; border-radius: ${radius.md}px; cursor: pointer; text-align: left;
     background-color: transparent; color: ${neutral[600]};
@@ -137,7 +137,7 @@ function EmptyState({ text }: { text: string }) {
 /**
  * 左侧命令树 / flow 列表（对齐原型 command-panel ① 区域）：
  * 「命令 | Flow」tab（选中态 2px 品牌蓝下划线）+ 搜索框 + 分组渲染。
- * 命令项：mono 名称 + labels pill；Flow 项：mono 名称 + flow pill + 参数数 + 命令 + 两行描述。
+ * 命令项：mono 名称 + labels pill + 两行描述；Flow 项：mono 名称 + flow pill + 参数数 + 命令 + 两行描述。
  */
 export default function CommandTree({ spec, selected, onSelect }: CommandTreeProps) {
   const [sideTab, setSideTab] = useState<SideTab>("commands");
@@ -299,13 +299,40 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
                         onClick={() => onSelect({ kind: "command", target })}
                         className="cliyard-tree-item"
                       >
-                        {on && <ActiveBar top="50%" />}
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {c.name}
+                        {on && <ActiveBar top={14} />}
+                        {/* 主行：mono 名称 + labels pill */}
+                        <span style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+                          <span
+                            style={{
+                              fontFamily: fontFamily.mono,
+                              fontSize: fontSize.sm,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {c.name}
+                          </span>
+                          {c.labels.map((lb) => (
+                            <LabelPill key={lb} label={lb} />
+                          ))}
                         </span>
-                        {c.labels.map((lb) => (
-                          <LabelPill key={lb} label={lb} />
-                        ))}
+                        {/* 次行：描述（两行内省略） */}
+                        {c.desc && (
+                          <span
+                            style={{
+                              fontSize: fontSize.xs,
+                              color: neutral[500],
+                              lineHeight: 1.5,
+                              overflow: "hidden",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                            }}
+                          >
+                            {c.desc}
+                          </span>
+                        )}
                       </button>
                     );
                   })}

@@ -43,7 +43,7 @@ interface LastRun {
 
 /**
  * 应用外壳：顶栏 + 三栏
- * 左 240px 命令树 / 中 320px rjsf 表单 / 右 flex-1 执行步骤（SSE）+ 历史占位
+ * 左 320px 命令树 / 中 320px rjsf 表单 / 右 flex-1 执行步骤（SSE）+ 历史占位
  */
 export default function App() {
   const [spec, setSpec] = useState<SpecData | null>(null);
@@ -110,7 +110,7 @@ export default function App() {
         {/* ① 命令树 */}
         <aside
           data-testid="command-tree"
-          style={{ width: 240, flexShrink: 0, ...cardBase, padding: space.lg, overflowY: "auto" }}
+          style={{ width: 320, flexShrink: 0, ...cardBase, padding: space.lg, overflowY: "auto" }}
         >
           {loadError ? (
             <div style={{ fontSize: fontSize.xs, color: statusColors.error.color, ...baseFont }}>
