@@ -72,11 +72,10 @@ describe("CommandTree", () => {
     expect(screen.getByPlaceholderText("搜索命令…")).toBeInTheDocument();
     expect(screen.getByText("list")).toBeInTheDocument();
 
-    // 切到 Flow：命令项消失，flow 项出现
+    // 切到 Flow：命令项消失，flow 项出现（主名显示 command 形式）
     fireEvent.click(tabs[1]);
     expect(screen.getByPlaceholderText("搜索 flow…")).toBeInTheDocument();
     expect(screen.queryByText("list")).not.toBeInTheDocument();
-    expect(screen.getByText("add_user")).toBeInTheDocument();
     expect(screen.getByText("add-user")).toBeInTheDocument();
     // flow 参数数 pill
     expect(screen.getByText("1 参数")).toBeInTheDocument();
@@ -84,7 +83,7 @@ describe("CommandTree", () => {
     // 切回命令：恢复
     fireEvent.click(tabs[0]);
     expect(screen.getByText("list")).toBeInTheDocument();
-    expect(screen.queryByText("add_user")).not.toBeInTheDocument();
+    expect(screen.queryByText("add-user")).not.toBeInTheDocument();
   });
 
   it("搜索框按当前 tab 过滤内容", () => {
@@ -101,7 +100,7 @@ describe("CommandTree", () => {
     fireEvent.click(screen.getAllByTestId("side-tab")[1]);
     const flowInput = screen.getByPlaceholderText("搜索 flow…");
     fireEvent.change(flowInput, { target: { value: "add-user" } });
-    expect(screen.getByText("add_user")).toBeInTheDocument();
+    expect(screen.getByText("add-user")).toBeInTheDocument();
 
     // 无匹配 → 空态
     fireEvent.change(flowInput, { target: { value: "zzz" } });
@@ -118,7 +117,7 @@ describe("CommandTree", () => {
 
     // flow 项（target 用 flow.command）
     fireEvent.click(screen.getAllByTestId("side-tab")[1]);
-    fireEvent.click(screen.getByText("add_user"));
+    fireEvent.click(screen.getByText("add-user"));
     expect(onSelect).toHaveBeenCalledWith<[Selection]>({ kind: "flow", target: "add-user" });
   });
 

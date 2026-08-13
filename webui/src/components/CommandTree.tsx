@@ -370,7 +370,7 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {f.name}
+                    {f.command}
                   </span>
                   <span
                     style={{
@@ -406,20 +406,6 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
                       {paramCount} 参数
                     </span>
                   )}
-                  <span
-                    className="cliyard-flow-command"
-                    style={{
-                      marginLeft: "auto",
-                      fontFamily: fontFamily.mono,
-                      fontSize: fontSize.xs,
-                      color: neutral[400],
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {f.command}
-                  </span>
                 </span>
                 {/* 描述行：两行内省略 */}
                 <span
