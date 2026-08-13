@@ -7,7 +7,7 @@ description: cliyard 服务化 Web 界面整体设计
 
 # Cliyard Web 页面方案
 
-> 路径 C：以服务方式启动 cliyard，命令自动渲染为 Web 表单，执行过程以步骤流实时展示。
+> 已实现：以 `cliyard serve <spec-dir>` 方式启动 cliyard，命令自动渲染为 Web 表单，执行过程以步骤流实时展示，历史记录可重放。
 > 原型见「原型」Tab：**command-panel**（主界面，历史记录在右侧 tab 中）。
 
 ## 页面清单
@@ -74,9 +74,11 @@ cliyard YAML spec 经转换器生成 JSON Schema，前端 `react-jsonschema-form
 - 成功与失败用状态 pill 区分（成功绿 / 失败红）；操作列：**重放**
 - 顶部「清空记录」「刷新」；分页展示
 
-## 与方案文档的关系
+## 实现说明
 
-- 执行引擎：进程内复用 cliyard（CliRunner + 输出捕获 → SSE）
-- 转换器：`YAML spec → JSON Schema`（表单层唯一新增代码）
-- 前端：React + `react-jsonschema-form` + Ant Design，静态资源由 FastAPI 托管
-- 入口：`cliyard serve <spec-dir>`，浏览器自动打开
+- 执行引擎：进程内复用 cliyard（`execute_pipeline` / `run_flow` 事件回调 → SSE 推送），后台线程执行
+- 转换器：`YAML spec → JSON Schema`（`cliyard.server.schema_bridge`，前端表单渲染依据）
+- 历史记录：SQLite 存储（`~/.cliyard/serve_history.db`），参数脱敏、支持重放
+- 认证面板：只读展示凭据 profile（token 掩码），增删改留在 CLI（`cliyard auth`）
+- 前端：React + `react-jsonschema-form`，静态资源由 FastAPI 托管（`webui/dist`）
+- 入口：`cliyard serve <spec-dir>`，`--open` 自动打开浏览器
