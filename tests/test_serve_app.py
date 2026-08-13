@@ -49,14 +49,14 @@ def test_api_spec_responds_parsable_and_not_5xx(client):
     assert isinstance(resp.json(), dict)
 
 
-def test_api_execute_returns_501(client):
-    """``/api/execute`` is a placeholder until T5 — must be 501, not 500."""
+def test_api_execute_invalid_kind_returns_400(client):
+    """``/api/execute`` validates kind — 非法 kind 返回 400，不启动执行。"""
     resp = client.post(
         "/api/execute",
-        json={"kind": "command", "target": "user.list", "params": {}},
+        json={"kind": "bogus", "target": "user.list", "params": {}},
     )
-    assert resp.status_code == 501
-    assert resp.json()["detail"] == "not implemented"
+    assert resp.status_code == 400
+    assert "detail" in resp.json()
 
 
 def test_root_returns_build_hint_json(client):
