@@ -4,13 +4,15 @@ import CommandTree from "../CommandTree";
 import type { Selection } from "../CommandTree";
 import type { SpecData } from "../../api/client";
 
-/** mock spec：1 个命令分组（含 labels）+ 1 个 flow（含 1 个参数） */
+/** mock spec：1 个命令分组（含 labels）+ 1 个 flow（含 1 个参数）。
+ * resources=[] 模拟后端无 group 资源的扁平组输出（二级：命令直接挂组下）。 */
 const spec: SpecData = {
   service: { name: "demo", description: "演示服务" },
   groups: [
     {
       group: "repos",
       desc: "仓库管理",
+      resources: [],
       commands: [
         {
           name: "list",
@@ -258,6 +260,30 @@ describe("CommandTree", () => {
     expect(screen.getByText("无命令")).toBeInTheDocument();
     fireEvent.click(screen.getAllByTestId("side-tab")[1]);
     expect(screen.getByText("无 flow")).toBeInTheDocument();
+  });
+});
+
+describe("CommandTree 扁平分组", () => {
+  it("resources=[]：组标题下直接渲染命令项，无资源小节标题", () => {
+    render(<CommandTree spec={spec} selected={null} onSelect={vi.fn()} />);
+    // 命令项直接挂组下
+    expect(screen.getAllByTestId("tree-item")).toHaveLength(2);
+    // 组标题唯一：扁平分支不额外渲染资源小节标题（三级分支会出现第二个 "repos"）
+    expect(screen.getAllByText("repos")).toHaveLength(1);
+  });
+
+  it("resources=[]：选中回调 target = 组名.方法名", () => {
+    const onSelect = vi.fn();
+    render(<CommandTree spec={spec} selected={null} onSelect={onSelect} />);
+    fireEvent.click(screen.getAllByTestId("tree-item")[0]);
+    expect(onSelect).toHaveBeenCalledWith<[Selection]>({ kind: "command", target: "repos.list" });
+  });
+
+  it("resources=[]：搜索按 组名.命令名/desc 过滤", () => {
+    render(<CommandTree spec={spec} selected={null} onSelect={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("搜索命令…"), { target: { value: "repos.list" } });
+    expect(screen.getAllByTestId("tree-item")).toHaveLength(1);
+    expect(screen.queryByText("delete")).not.toBeInTheDocument();
   });
 });
 
