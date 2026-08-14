@@ -26,9 +26,20 @@ function schemaForSelection(spec: SpecData | null, selected: Selection | null): 
   if (!spec || !selected) return null;
   if (selected.kind === "command") {
     const [groupName, methodName] = selected.target.split(".");
-    const group = spec.groups.find((g) => g.group === groupName);
-    const command = group?.commands.find((c) => c.name === methodName);
-    return command?.schema ?? null;
+    for (const g of spec.groups) {
+      // 扁平组：group 名即资源名
+      if (g.group === groupName) {
+        const c = g.commands.find((c) => c.name === methodName);
+        if (c) return c.schema ?? null;
+      }
+      // 两级组：资源名匹配（target = 资源名.方法名）
+      const r = g.resources?.find((r) => r.name === groupName);
+      if (r) {
+        const c = r.commands.find((c) => c.name === methodName);
+        if (c) return c.schema ?? null;
+      }
+    }
+    return null;
   }
   const flow = spec.flows.find((f) => f.command === selected.target);
   return flow?.params_schema ?? null;

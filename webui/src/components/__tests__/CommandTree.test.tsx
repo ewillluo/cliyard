@@ -44,6 +44,66 @@ const spec: SpecData = {
 
 const emptySpec: SpecData = { service: { name: "demo", description: "" }, groups: [], flows: [] };
 
+/** mock spec：两级分组（group → resources，模拟 ketacli target 组） */
+const twoLevelSpec: SpecData = {
+  service: { name: "demo", description: "演示服务" },
+  groups: [
+    {
+      group: "target",
+      desc: "运维资产对象",
+      commands: [
+        {
+          name: "list",
+          labels: [],
+          desc: "运维资产对象列表",
+          path: "metric/targets",
+          method: "GET",
+          schema: { type: "object", properties: {} },
+        },
+        {
+          name: "list",
+          labels: [],
+          desc: "运维资产对象类型列表",
+          path: "target/targetTypes",
+          method: "GET",
+          schema: { type: "object", properties: {} },
+        },
+      ],
+      resources: [
+        {
+          name: "manage",
+          desc: "运维资产对象",
+          commands: [
+            {
+              name: "list",
+              labels: ["已调试"],
+              desc: "运维资产对象列表",
+              path: "metric/targets",
+              method: "GET",
+              schema: { type: "object", properties: {} },
+            },
+          ],
+        },
+        {
+          name: "type",
+          desc: "运维资产对象类型",
+          commands: [
+            {
+              name: "list",
+              labels: [],
+              desc: "运维资产对象类型列表",
+              path: "target/targetTypes",
+              method: "GET",
+              schema: { type: "object", properties: {} },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  flows: [],
+};
+
 /** mock spec：2 个同名分组（templates）——模拟 /api/spec 重复 group 名（合法输入） */
 const dupGroupSpec: SpecData = {
   service: { name: "demo", description: "演示服务" },
@@ -198,5 +258,44 @@ describe("CommandTree", () => {
     expect(screen.getByText("无命令")).toBeInTheDocument();
     fireEvent.click(screen.getAllByTestId("side-tab")[1]);
     expect(screen.getByText("无 flow")).toBeInTheDocument();
+  });
+});
+
+describe("CommandTree 两级分组", () => {
+  it("两级分组：组标题/组 desc + 子资源名/desc + 资源下命令项", () => {
+    render(<CommandTree spec={twoLevelSpec} selected={null} onSelect={vi.fn()} />);
+    expect(screen.getByText("target")).toBeInTheDocument();
+    expect(screen.getAllByText("运维资产对象").length).toBeGreaterThanOrEqual(2); // 组 desc + manage 资源 desc
+    expect(screen.getByText("manage")).toBeInTheDocument();
+    expect(screen.getByText("type")).toBeInTheDocument();
+    expect(screen.getByText("运维资产对象类型")).toBeInTheDocument();
+    expect(screen.getAllByTestId("tree-item")).toHaveLength(2);
+    expect(screen.getByText("已调试")).toBeInTheDocument(); // manage.list 的 labels pill
+  });
+
+  it("两级分组：选中回调 target = 资源名.方法名（manage.list，非 target.list）", () => {
+    const onSelect = vi.fn();
+    render(<CommandTree spec={twoLevelSpec} selected={null} onSelect={onSelect} />);
+    fireEvent.click(screen.getAllByTestId("tree-item")[0]);
+    expect(onSelect).toHaveBeenCalledWith<[Selection]>({ kind: "command", target: "manage.list" });
+  });
+
+  it("两级分组：选中态按资源名.方法名匹配", () => {
+    render(
+      <CommandTree spec={twoLevelSpec} selected={{ kind: "command", target: "type.list" }} onSelect={vi.fn()} />,
+    );
+    const [manage, type] = screen.getAllByTestId("tree-item");
+    expect(manage.getAttribute("data-active")).toBe("false");
+    expect(type.getAttribute("data-active")).toBe("true");
+  });
+
+  it("两级分组：搜索匹配子资源名/命令名，只保留命中资源", () => {
+    render(<CommandTree spec={twoLevelSpec} selected={null} onSelect={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("搜索命令…"), {
+      target: { value: "type" },
+    });
+    expect(screen.getByText("运维资产对象类型")).toBeInTheDocument();
+    expect(screen.getAllByTestId("tree-item")).toHaveLength(1);
+    expect(screen.queryByText("已调试")).not.toBeInTheDocument(); // manage 资源被过滤
   });
 });

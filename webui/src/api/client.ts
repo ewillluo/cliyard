@@ -19,11 +19,20 @@ export interface TreeItem {
   schema: Record<string, unknown>;
 }
 
-/** 资源分组（对应一个 YAML resource 文件） */
+/** 子资源（对应 YAML resource 文件，挂在一个 group 下） */
+export interface GroupResource {
+  name: string;
+  desc: string;
+  commands: TreeItem[];
+}
+
+/** 资源分组：两级结构（group → resources），commands 为拍平兼容字段 */
 export interface Group {
   group: string;
   desc: string;
   commands: TreeItem[];
+  /** 两级分组下的子资源；扁平组（无 group 字段）为单元素或缺失 */
+  resources?: GroupResource[];
 }
 
 /** flow 元数据（_flows.yaml 注册） */

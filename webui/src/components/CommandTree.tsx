@@ -10,7 +10,7 @@ import {
   statusColors,
   type StatusTheme,
 } from "../styles/tokens";
-import type { Flow, SpecData } from "../api/client";
+import type { Flow, GroupResource, SpecData, TreeItem } from "../api/client";
 
 const baseFont: CSSProperties = { fontFamily: fontFamily.body };
 
@@ -145,23 +145,120 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
 
   const q = search.trim().toLowerCase();
 
-  // 命令搜索：group.group/name/desc；flow 搜索：name/description/command
-  const filteredGroups = useMemo(
-    () =>
-      spec.groups
-        .map((g) => ({
-          ...g,
-          commands: g.commands.filter(
-            (c) =>
-              `${g.group}.${c.name}`.toLowerCase().includes(q) ||
-              c.desc.toLowerCase().includes(q),
-          ),
-        }))
-        .filter((g) => g.commands.length > 0),
-    [spec.groups, q],
-  );
+  // 命令搜索：group.group/desc + resources 内子资源名/命令名/desc；flow 搜索：name/description/command
+  const filteredGroups = useMemo(() => {
+    return spec.groups
+      .map((g) => {
+        const groupHit =
+          q === "" || g.group.toLowerCase().includes(q) || g.desc.toLowerCase().includes(q);
+        if (g.resources && g.resources.length > 0) {
+          const resources = g.resources
+            .map((r) => ({
+              ...r,
+              commands: groupHit
+                ? r.commands
+                : r.commands.filter(
+                    (c) =>
+                      `${r.name}.${c.name}`.toLowerCase().includes(q) ||
+                      c.desc.toLowerCase().includes(q),
+                  ),
+            }))
+            .filter((r) => r.commands.length > 0);
+          return { ...g, resources };
+        }
+        const commands = groupHit
+          ? g.commands
+          : g.commands.filter(
+              (c) =>
+                `${g.group}.${c.name}`.toLowerCase().includes(q) ||
+                c.desc.toLowerCase().includes(q),
+            );
+        return { ...g, commands };
+      })
+      .filter(
+        (g) => (g.resources && g.resources.length > 0) || g.commands.length > 0,
+      );
+  }, [spec.groups, q]);
   const filteredFlows = spec.flows.filter((f) =>
     [f.name, f.description, f.command].some((s) => s.toLowerCase().includes(q)),
+  );
+
+  /** 命令项按钮（target = 资源名.方法名，与 executor 的 resource.method 语义一致） */
+  const renderCommandItem = (c: TreeItem, targetPrefix: string) => {
+    const target = `${targetPrefix}.${c.name}`;
+    const on = selected?.kind === "command" && selected.target === target;
+    return (
+      <button
+        key={target}
+        type="button"
+        data-testid="tree-item"
+        data-active={on ? "true" : "false"}
+        onClick={() => onSelect({ kind: "command", target })}
+        className="cliyard-tree-item"
+      >
+        {on && <ActiveBar top={14} />}
+        {/* 主行：mono 名称 + labels pill */}
+        <span style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+          <span
+            style={{
+              fontFamily: fontFamily.mono,
+              fontSize: fontSize.sm,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {c.name}
+          </span>
+          {c.labels.map((lb) => (
+            <LabelPill key={lb} label={lb} />
+          ))}
+        </span>
+        {/* 次行：描述（两行内省略） */}
+        {c.desc && (
+          <span
+            style={{
+              fontSize: fontSize.xs,
+              color: neutral[500],
+              lineHeight: 1.5,
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {c.desc}
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  /** 子资源小节标题：mono 资源名 + 灰字描述 */
+  const renderResourceHeader = (r: GroupResource) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: space.sm,
+        padding: `0 ${space.xs}px`,
+        marginBottom: 2,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: fontFamily.mono,
+          fontSize: fontSize.xs,
+          fontWeight: 600,
+          color: neutral[600],
+        }}
+      >
+        {r.name}
+      </span>
+      {r.desc && (
+        <span style={{ fontSize: fontSize.xs, color: neutral[400] }}>{r.desc}</span>
+      )}
+    </div>
   );
 
   return (
@@ -286,57 +383,24 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
                   </span>
                   <span style={{ fontSize: fontSize.xs, color: neutral[300] }}>{g.desc}</span>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {g.commands.map((c) => {
-                    const target = `${g.group}.${c.name}`;
-                    const on = selected?.kind === "command" && selected.target === target;
-                    return (
-                      <button
-                        key={target}
-                        type="button"
-                        data-testid="tree-item"
-                        data-active={on ? "true" : "false"}
-                        onClick={() => onSelect({ kind: "command", target })}
-                        className="cliyard-tree-item"
-                      >
-                        {on && <ActiveBar top={14} />}
-                        {/* 主行：mono 名称 + labels pill */}
-                        <span style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
-                          <span
-                            style={{
-                              fontFamily: fontFamily.mono,
-                              fontSize: fontSize.sm,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {c.name}
-                          </span>
-                          {c.labels.map((lb) => (
-                            <LabelPill key={lb} label={lb} />
-                          ))}
-                        </span>
-                        {/* 次行：描述（两行内省略） */}
-                        {c.desc && (
-                          <span
-                            style={{
-                              fontSize: fontSize.xs,
-                              color: neutral[500],
-                              lineHeight: 1.5,
-                              overflow: "hidden",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                            }}
-                          >
-                            {c.desc}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                {g.resources && g.resources.length > 0 ? (
+                  /* 两级分组：组内按子资源分小节，命令挂在子资源下 */
+                  <div style={{ display: "flex", flexDirection: "column", gap: space.md }}>
+                    {g.resources.map((r, ri) => (
+                      <div key={`${g.group}-${r.name}-${ri}`}>
+                        {renderResourceHeader(r)}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {r.commands.map((c) => renderCommandItem(c, r.name))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* 扁平组（无 group 字段资源）：组标题下直接挂命令 */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {g.commands.map((c) => renderCommandItem(c, g.group))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
