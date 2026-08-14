@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties } from "react";
 import { streamExecution } from "../api/client";
 import type { ExecutionEvent, TableColumn, TableData } from "../api/client";
 import HistoryPanel from "./HistoryPanel";
 import type { HistoryPanelHandle } from "./HistoryPanel";
-import type { CommandFormHandle } from "./CommandForm";
 import {
   brand,
   neutral,
@@ -28,8 +27,6 @@ const cardBase: CSSProperties = {
 export interface StepsPanelProps {
   executionId: string | null;
   onReExecute: (executionId?: string) => void;
-  formRef?: RefObject<CommandFormHandle | null>;
-  submitting?: boolean;
 }
 
 /** 事件类型 → 中文标题 */
@@ -228,6 +225,7 @@ function MonoBlock({ lines, mono }: { lines: string[]; mono: boolean }) {
         style={{
           margin: 0,
           overflowX: "auto",
+          overflowY: "auto",
           backgroundColor: neutral[900],
           padding: `${space.sm + 2}px ${space.md}px`,
           fontFamily: fontFamily.mono,
@@ -256,7 +254,7 @@ function MonoBlock({ lines, mono }: { lines: string[]; mono: boolean }) {
       </pre>
     );
   return (
-    <pre style={{ margin: 0, overflowX: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
+    <pre style={{ margin: 0, overflowX: "auto", overflowY: "auto", backgroundColor: neutral[50], padding: `${space.sm + 2}px ${space.md}px`, fontSize: fontSize.xs, lineHeight: 1.7, ...baseFont }}>
       {lines.map((line, li) => (
         <span
           key={li}
@@ -443,14 +441,12 @@ function EmptyState({ text }: { text: string }) {
  * 右侧执行步骤面板：SSE 事件流 → 步骤时间线。
  * executionId 变化时重新订阅（done/error 自动收尾），卸载时断开。
  */
-export default function StepsPanel({ executionId, onReExecute, formRef, submitting: externalSubmitting }: StepsPanelProps) {
+export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps) {
   const [activeTab, setActiveTab] = useState<"steps" | "history">("steps");
   const [steps, setSteps] = useState<ExecutionEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [localSubmitting, setLocalSubmitting] = useState(false);
   const historyRef = useRef<HistoryPanelHandle>(null);
-  const isSubmitting = externalSubmitting ?? localSubmitting;
 
   // 历史重放成功：切回「执行步骤」tab 并让父级订阅新 execution_id
   const handleHistoryReplay = useCallback(
@@ -694,7 +690,7 @@ export default function StepsPanel({ executionId, onReExecute, formRef, submitti
                       )}
                     </div>
                     {(c.lines.length > 0 || c.table) && (
-                      <div style={{ marginTop: space.sm, overflow: "hidden", borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: "#FFFFFF" }}>
+                      <div style={{ marginTop: space.sm, overflowY: "auto", maxHeight: 400, borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: "#FFFFFF" }}>
                         {c.table ? <FormatCardBody table={c.table} lines={c.lines} /> : <MonoBlock lines={c.lines} mono={c.mono} />}
                       </div>
                     )}
@@ -710,33 +706,7 @@ export default function StepsPanel({ executionId, onReExecute, formRef, submitti
         </div>
       )}
 
-      {activeTab === "steps" && (
-        <div
-          style={{
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: space.sm,
-            borderTop: `1px solid ${neutral[100]}`,
-            padding: `${space.sm}px ${space.lg}px`,
-          }}
-        >
-          <button
-            type="button"
-            data-testid="bottom-run-button"
-            className="cliyard-pill-btn"
-            disabled={isSubmitting}
-            onClick={() => {
-              setLocalSubmitting(true);
-              formRef?.current?.submit();
-              setTimeout(() => setLocalSubmitting(false), 800);
-            }}
-            style={{ flex: 1, padding: `${space.sm + 2}px ${space.lg}px` }}
-          >
-            {isSubmitting ? "执行中…" : "执行"}
-          </button>
-        </div>
-      )}
+
     </section>
   );
 }

@@ -153,7 +153,7 @@ export default function App() {
         )}
 
         {/* ③ 执行步骤 / 历史 */}
-        <StepsPanel executionId={executionId} onReExecute={handleReExecute} formRef={formRef} />
+        <StepsPanel executionId={executionId} onReExecute={handleReExecute} />
       </div>
     </div>
   );

@@ -73,9 +73,8 @@ const flowEvents: ExecutionEvent[] = [
 function renderPanel(
   executionId: string | null = "exec-1",
   onReExecute = vi.fn(),
-  formRef: React.RefObject<import("../CommandForm").CommandFormHandle | null> = { current: null },
 ) {
-  return render(<StepsPanel executionId={executionId} onReExecute={onReExecute} formRef={formRef} />);
+  return render(<StepsPanel executionId={executionId} onReExecute={onReExecute} />);
 }
 
 describe("StepsPanel", () => {
@@ -217,42 +216,6 @@ describe("StepsPanel", () => {
     // tab bar 提供清空/刷新按钮
     expect(screen.getByTestId("clear-history-button")).toBeInTheDocument();
     expect(screen.getByTestId("refresh-history-button")).toBeInTheDocument();
-  });
-
-  it("底部固定执行按钮存在于执行步骤 tab，点击触发 formRef.submit", () => {
-    const submitFn = vi.fn();
-    const formRef = { current: { submit: submitFn } };
-    streamMock.mockImplementation((_id, onEvent) => {
-      commandEvents.forEach(onEvent);
-      return vi.fn();
-    });
-    renderPanel("exec-1", vi.fn(), formRef);
-
-    const btn = screen.getByTestId("bottom-run-button");
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveTextContent("执行");
-    fireEvent.click(btn);
-    expect(submitFn).toHaveBeenCalledTimes(1);
-  });
-
-  it("历史 tab 时底部执行按钮隐藏", async () => {
-    vi.mocked(listExecutions).mockResolvedValue({ total: 0, items: [] });
-    renderPanel(null);
-    fireEvent.click(screen.getAllByTestId("panel-tab")[1]);
-    await waitFor(() => expect(screen.queryByTestId("bottom-run-button")).not.toBeInTheDocument());
-  });
-
-  it("底部按钮 submitting 态显示「执行中…」并 disabled", () => {
-    streamMock.mockImplementation((_id, onEvent) => {
-      commandEvents.forEach(onEvent);
-      return vi.fn();
-    });
-    renderPanel("exec-1", vi.fn(), { current: null });
-
-    const btn = screen.getByTestId("bottom-run-button");
-    fireEvent.click(btn);
-    expect(btn).toHaveTextContent("执行中…");
-    expect(btn).toBeDisabled();
   });
 
   it("format 事件带 table 时默认渲染表格视图（alias 列头 + 行值），可切换 JSON", () => {
