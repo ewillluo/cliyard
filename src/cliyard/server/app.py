@@ -29,9 +29,13 @@ from cliyard.server.api import router as api_router
 from cliyard.server.executor import execution_manager
 from cliyard.server.history import DEFAULT_HISTORY_DB_PATH, HistoryStore
 
-# Project root: src/cliyard/server/app.py -> parents[3]
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_WEBUI_DIST = _PROJECT_ROOT / "webui" / "dist"
+# 前端产物定位：
+# * 包内（PyPI 安装：site-packages/cliyard/server/webui/dist）——随 wheel 分发
+# * 项目根（开发/源码：cliyard/webui/dist）
+# 包内路径存在时优先（安装场景），否则回退项目根（开发场景）。
+_PACKAGE_WEBUI = Path(__file__).resolve().parent / "webui" / "dist"
+_PROJECT_WEBUI = Path(__file__).resolve().parents[3] / "webui" / "dist"
+_WEBUI_DIST = _PACKAGE_WEBUI if _PACKAGE_WEBUI.is_dir() else _PROJECT_WEBUI
 
 # SQLite 执行历史库路径（测试可 monkeypatch 覆盖）。
 _HISTORY_DB = DEFAULT_HISTORY_DB_PATH

@@ -77,6 +77,23 @@ def test_root_returns_build_hint_json(client):
     assert "npm run build" in body["message"]
 
 
+def test_package_webui_dist_selected_when_present():
+    """包内 dist（随 wheel 分发）存在时 _WEBUI_DIST 指向包内路径。"""
+    package_dist = Path(server_app.__file__).resolve().parent / "webui" / "dist"
+    assert package_dist.is_dir()
+    assert server_app._WEBUI_DIST == package_dist
+    assert (server_app._WEBUI_DIST / "index.html").is_file()
+
+
+def test_root_serves_frontend_when_built():
+    """前端已构建（包内 dist 存在）时 / 返回 index.html 而非提示 JSON。"""
+    client = TestClient(create_app(str(_DEMO_SPEC)))
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "<!doctype html" in resp.text.lower()
+
+
 def test_create_app_nonexistent_spec_dir_raises():
     with pytest.raises(FileNotFoundError):
         create_app("/no/such/spec-dir")

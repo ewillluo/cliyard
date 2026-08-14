@@ -39,6 +39,12 @@ Repository = "https://github.com/guolong123/cliyard.git"
 [project.scripts]
 cliyard = "cliyard.cli.__main__:main"
 
+# 前端产物（src/cliyard/server/webui/dist/）随 wheel 分发，
+# 使 `cliyard serve` 在 PyPI 安装场景下无需本地前端构建。
+# 构建产物由 scripts/build-webui.sh 在发布前生成并提交进仓库。
+[tool.setuptools.package-data]
+cliyard = ["server/webui/**/*"]
+
 [build-system]
 requires = ["setuptools>=65.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
