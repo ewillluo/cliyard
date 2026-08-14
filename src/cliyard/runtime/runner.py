@@ -312,6 +312,12 @@ def create_cli(
         flow_group.add_command(run_group)
         cli.add_command(flow_group)
 
+    # ``server`` sub-command: starts the web UI for this CLI's spec dir
+    # (captured via closure — no spec-dir argument needed).
+    from cliyard.runtime.server_command import build_server_command
+
+    cli.add_command(build_server_command(str(spec_path)))
+
     return cli
 
 

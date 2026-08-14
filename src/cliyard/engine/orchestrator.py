@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from jinja2 import ChainableUndefined
 from jinja2.sandbox import SandboxedEnvironment
@@ -27,6 +27,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from cliyard.engine.errors import CliyError
 from cliyard.engine.template import Template
 from cliyard.plugin import PluginRegistry
+from cliyard.server.redact import redact_sensitive
 
 # ---------------------------------------------------------------------------
 # Flow context
@@ -1178,6 +1179,7 @@ def run_flow(
     service_spec: dict,
     server_override: str | None = None,
     verbose: bool = False,
+    step_cb: Callable[[str, dict], None] | None = None,
 ) -> None:
     """Execute a flow definition sequentially.
 
@@ -1197,6 +1199,11 @@ def run_flow(
         service_spec: Full loaded service dict (for resource/method lookup).
         verbose: If ``True``, print each step's resolved params and response
             details (equivalent to ``show_response: true`` on every step).
+        step_cb: Optional ``(event_name, payload)`` callback invoked per
+            step (``"step_start"`` / ``"step_done"``) and once at flow end
+            (``"flow_end"``).  Emitted on every termination path, including
+            early aborts and failures.  Exceptions raised by the callback are
+            swallowed and never affect flow execution.  Default ``None``.
 
     Raises:
         CliyError: If any step fails (flow is aborted).
@@ -1258,6 +1265,7 @@ def run_flow(
     # Execute steps sequentially
     if not flow_spec.steps:
         console.print("[yellow]Flow completed (no steps)[/yellow]")
+        _emit_step(step_cb, "flow_end", {"outcome": "completed", "step_count": 0})
         return
 
     step_results: list[dict] = []
@@ -1267,6 +1275,12 @@ def run_flow(
 
         # --- on_step_start hooks ---
         _trigger_step_hooks("on_step_start", step, context)
+
+        _emit_step(
+            step_cb,
+            "step_start",
+            {"index": step_index, "id": step.id, "label": label, "use": step.use},
+        )
 
         try:
             result, resolved_params = _execute_step(step, context)
@@ -1293,15 +1307,30 @@ def run_flow(
             # --- on_step_end hooks ---
             _trigger_step_hooks("on_step_end", step, context)
 
+            _emit_step(
+                step_cb,
+                "step_done",
+                {
+                    "index": step_index,
+                    "id": step.id,
+                    "label": label,
+                    "status": "ok",
+                    "elapsed_ms": int(_elapsed * 1000),
+                    "result_preview": _step_result_preview(result),
+                },
+            )
+
             # Conditional branching — evaluate on_result if configured
             if step.on_result:
                 handle_on_result(step.on_result, context, step.id)
                 # Check if a control action was triggered
                 if context._flow_aborted:
                     _show_flow_summary(console, step_results, "returned")
+                    _emit_step(step_cb, "flow_end", {"outcome": "returned", "step_count": len(step_results)})
                     return
                 if context._flow_skipped:
                     _show_flow_summary(console, step_results, "skipped")
+                    _emit_step(step_cb, "flow_end", {"outcome": "skipped", "step_count": len(step_results)})
                     return
 
         except CliyError as e:
@@ -1316,6 +1345,19 @@ def run_flow(
             step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
             _show_flow_summary(console, step_results, "failed")
+            _emit_step(
+                step_cb,
+                "step_done",
+                {
+                    "index": step_index,
+                    "id": step.id,
+                    "label": label,
+                    "status": "fail",
+                    "elapsed_ms": int((time.perf_counter() - _start) * 1000),
+                    "result_preview": "",
+                },
+            )
+            _emit_step(step_cb, "flow_end", {"outcome": "failed", "step_count": len(step_results)})
             return
         except Exception as e:
             _msg = str(e).replace("[", "[[]").replace("]", "[]]")
@@ -1329,10 +1371,24 @@ def run_flow(
             step_results.append({"id": step.id, "label": label, "status": "fail"})
             _trigger_flow_hooks("on_failure", context)
             _show_flow_summary(console, step_results, "failed")
+            _emit_step(
+                step_cb,
+                "step_done",
+                {
+                    "index": step_index,
+                    "id": step.id,
+                    "label": label,
+                    "status": "fail",
+                    "elapsed_ms": int((time.perf_counter() - _start) * 1000),
+                    "result_preview": "",
+                },
+            )
+            _emit_step(step_cb, "flow_end", {"outcome": "failed", "step_count": len(step_results)})
             return
 
     _show_flow_summary(console, step_results, "completed")
     _trigger_flow_hooks("on_end", context)
+    _emit_step(step_cb, "flow_end", {"outcome": "completed", "step_count": len(step_results)})
 
 
 def _show_flow_summary(
@@ -1377,3 +1433,23 @@ def _show_flow_summary(
         console.print("[bold yellow] ⚑ Flow skipped[/bold yellow]")
     elif outcome == "failed":
         console.print("[bold red] ✗ Flow failed[/bold red]")
+
+
+def _step_result_preview(result: Any, limit: int = 20000) -> str:
+    """Render a step result as a redacted, truncated string for events."""
+    text = _format_value(redact_sensitive(result))
+    return text[:limit]
+
+
+def _emit_step(
+    step_cb: Callable[[str, dict], None] | None,
+    name: str,
+    payload: dict[str, Any],
+) -> None:
+    """Invoke *step_cb* with ``(name, payload)``; swallow callback errors."""
+    if step_cb is None:
+        return
+    try:
+        step_cb(name, payload)
+    except Exception:
+        pass

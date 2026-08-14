@@ -15,12 +15,16 @@ a standalone function that can be tested and evolved independently.
 
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import click
 
 from cliyard.engine.flow import FlowSpec
+from cliyard.engine.labels import resolve_labels
+from cliyard.server.redact import is_sensitive_key, redact_sensitive
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +290,7 @@ def execute_pipeline(
     http_client: Any = None,
     raw_response: bool = False,
     base_url_override: str | None = None,
+    event_cb: Callable[[str, dict], None] | None = None,
 ) -> dict[str, Any] | str:
     """Execute the full request pipeline and return response data.
 
@@ -296,6 +301,11 @@ def execute_pipeline(
         raw_response: If ``True``, return the raw JSON response dict instead
             of the parsed ``{items, total, fields}`` format.  Used by the
             flow orchestrator for JSONPath extraction.
+        event_cb: Optional ``(event_name, payload)`` callback invoked at key
+            pipeline stages — ``"validate"``, ``"auth"``, ``"request"``,
+            ``"response"``, ``"format"``.  Payloads are pre-redacted (no
+            sensitive values leak).  Exceptions raised by the callback are
+            swallowed and never affect pipeline execution.  Default ``None``.
 
     Returns:
         Parsed response data dict (``{items, total, fields}``) by default,
@@ -316,6 +326,18 @@ def execute_pipeline(
         method_spec.setdefault("http", {})["path"] = resource_spec.get("path", resource_name)
 
     validated = bind_and_validate(kwargs, method_spec)
+
+    # Stage: validate — expose validated params grouped by HTTP location (redacted)
+    _emit_event(
+        event_cb,
+        "validate",
+        {
+            "params": {
+                _loc: redact_sensitive(getattr(validated, _loc))
+                for _loc in ("argument", "path", "query", "header", "body")
+            }
+        },
+    )
 
     # Read file-type params (skip for multipart — files stay as paths)
     _is_multipart = method_spec.get("body_type") == "multipart"
@@ -368,6 +390,14 @@ def execute_pipeline(
     merged_params.update(getattr(validated, "argument"))
 
     # Auth chain (skip if a pre-configured client was provided)
+    _emit_event(
+        event_cb,
+        "auth",
+        {
+            "mode": "preconfigured" if http_client is not None else "chain",
+            "pre_filled_keys": list((service_ctx.pre_filled_auth or {}).keys()),
+        },
+    )
     if http_client is None:
         _base = base_url_override or service_ctx.base_url
         if service_ctx.auth_spec:
@@ -392,6 +422,18 @@ def execute_pipeline(
         prefix=service_ctx.prefix,
     )
 
+    _emit_event(
+        event_cb,
+        "request",
+        {
+            "method": req.method,
+            "url": req.url,
+            "headers": redact_sensitive(req.headers),
+            "query_params": redact_sensitive(req.query_params),
+            "body": redact_sensitive(req.body),
+        },
+    )
+
     # Stage 4: run pre-request hooks
     hooks_config = method_spec.get("hooks", {})
     _pre_hooks = hooks_config.get("pre-request", [])
@@ -399,6 +441,7 @@ def execute_pipeline(
         req = run_pre_request_hooks(_pre_hooks, req)
 
     _timeout = method_spec.get("http", {}).get("timeout", service_ctx.timeout)
+    _req_started = time.perf_counter()
     response = http_client.request(
         method=req.method,
         url=req.url,
@@ -407,6 +450,16 @@ def execute_pipeline(
         headers=req.headers,
         files=req.files,
         timeout=_timeout,
+    )
+    _elapsed_ms = int((time.perf_counter() - _req_started) * 1000)
+
+    _emit_event(
+        event_cb,
+        "response",
+        {
+            "status_code": getattr(response, "status_code", None),
+            "elapsed_ms": _elapsed_ms,
+        },
     )
 
     if method_spec.get("response_type") == "file":
@@ -450,9 +503,80 @@ def execute_pipeline(
         if _fmt_hooks:
             data = run_post_response_hooks(_fmt_hooks, data)
 
+        format_payload: dict[str, Any] = {
+            "output_preview": _json_preview(redact_sensitive(data))
+        }
+        table_payload = _build_table_payload(data)
+        if table_payload is not None:
+            format_payload["table"] = table_payload
+        _emit_event(event_cb, "format", format_payload)
         return data
 
+    _emit_event(event_cb, "format", {"output_preview": _json_preview(redact_sensitive(resp_data))})
     return resp_data
+
+
+def _emit_event(
+    event_cb: Callable[[str, dict], None] | None,
+    name: str,
+    payload: dict[str, Any],
+) -> None:
+    """Invoke *event_cb* with ``(name, payload)``; swallow callback errors."""
+    if event_cb is None:
+        return
+    try:
+        event_cb(name, payload)
+    except Exception:
+        pass
+
+
+def _build_table_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the structured ``table`` field for the ``format`` event payload.
+
+    Only emitted when the pipeline ran the ``items_path`` branch and the
+    parsed data carries both a non-empty item list and field definitions.
+    Columns expose the YAML ``alias`` (falling back to ``name``); cell values
+    are redacted (sensitive keys → ``***``) before extraction and rendered
+    through :func:`cliyard.output.formatter._format_field_value` so that
+    ``format: datetime`` conversion applies in the table view too.
+
+    Returns ``None`` when there is nothing table-shaped to show (caller keeps
+    the JSON-only payload, preserving backward compatibility).
+    """
+    items = data.get("items")
+    fields = data.get("fields") or []
+    if not isinstance(items, list) or not fields:
+        return None
+
+    columns = [
+        {
+            "name": "***" if is_sensitive_key(f.get("name")) else f.get("name"),
+            "alias": (
+                "***"
+                if is_sensitive_key(f.get("alias") or f.get("name"))
+                else (f.get("alias") or f.get("name"))
+            ),
+        }
+        for f in fields
+    ]
+
+    from cliyard.output.formatter import _format_field_value
+
+    redacted_items = redact_sensitive(items)
+    rows = [
+        [_format_field_value(redacted_item.get(f.get("name")), f) for f in fields]
+        for redacted_item in redacted_items
+    ]
+    return {"columns": columns, "rows": rows, "total": data.get("total")}
+
+
+def _json_preview(obj: Any, limit: int = 2000) -> str:
+    """Render *obj* as compact JSON truncated to *limit* characters."""
+    try:
+        text = json.dumps(obj, ensure_ascii=False, default=str)
+    except Exception:
+        text = repr(obj)
+    return text[:limit]
 
 
 def _make_callback(
@@ -544,14 +668,6 @@ def _make_callback(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_labels(method_spec: dict[str, Any]) -> list[str]:
-    """Resolve the ``labels`` list from a method spec."""
-    labels = method_spec.get("labels")
-    if labels is not None:
-        return labels if isinstance(labels, list) else [str(labels)]
-    return []
-
-
 def _format_command_label(subcommand: str, cmd: click.Command) -> str:
     """Build the display label for a command, appending any labels."""
     labels: list[str] = getattr(cmd, "labels", None) or []
@@ -637,7 +753,7 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
         params=click_params,
         short_help=method_spec.get("description") or "List resources",
     )
-    cmd.labels = _resolve_labels(method_spec)
+    cmd.labels = resolve_labels(method_spec)
     return cmd
 
 
@@ -692,7 +808,7 @@ def build_operation_command(
         params=click_params,
         short_help=method_spec.get("description") or f"{http_method} operation",
     )
-    cmd.labels = _resolve_labels(method_spec)
+    cmd.labels = resolve_labels(method_spec)
     return cmd
 
 

@@ -20,3 +20,7 @@ Thumbs.db
 # cliyard
 cliyard-specs/
 *.local.yaml
+
+# .omo workflow state
+.omo/drafts/
+.omo/evidence/
