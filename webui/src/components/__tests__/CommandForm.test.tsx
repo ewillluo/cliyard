@@ -8,7 +8,7 @@ vi.mock("../../api/client", () => ({
   streamExecution: vi.fn(),
 }));
 
-/** mock schema：string + enum 下拉 + bool checkbox + file 上传 */
+/** mock schema：string + enum 下拉 + bool checkbox + file 上传 + array 多值 */
 const schema: Record<string, unknown> = {
   type: "object",
   title: "list",
@@ -17,6 +17,7 @@ const schema: Record<string, unknown> = {
     format: { type: "string", enum: ["json", "csv"] },
     verbose: { type: "boolean" },
     config: { type: "string", format: "binary" },
+    tags: { type: "array", items: { type: "string" }, title: "标签" },
   },
   required: ["name"],
 };
@@ -108,5 +109,30 @@ describe("CommandForm", () => {
 
     fireEvent.click(screen.getByTestId("reset-button"));
     expect(screen.queryByTestId("submit-error")).not.toBeInTheDocument();
+  });
+
+  it("array 字段渲染为文本输入框，placeholder 含「逗号」提示", () => {
+    renderForm();
+    const input = screen.getByPlaceholderText(/逗号/);
+    expect(input).toBeInTheDocument();
+    expect(input.tagName).toBe("INPUT");
+    expect(input).toHaveAttribute("type", "text");
+  });
+
+  it("array 字段输入逗号分隔值，提交后 formData 为数组", async () => {
+    const onExecute = vi.fn();
+    renderForm({}, onExecute);
+
+    fireEvent.change(screen.getByLabelText(/name/), { target: { value: "test" } });
+    const input = screen.getByPlaceholderText(/逗号/);
+    fireEvent.change(input, { target: { value: "a, b, c" } });
+    fireEvent.click(screen.getByTestId("run-button"));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute).toHaveBeenCalledWith(
+      "command",
+      "repos.list",
+      expect.objectContaining({ tags: ["a", "b", "c"] }),
+    );
   });
 });

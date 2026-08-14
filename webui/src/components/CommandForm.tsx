@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "reac
 import type { CSSProperties } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import type { RJSFSchema, UiSchema } from "@rjsf/utils";
+import type { FieldProps, RJSFSchema, UiSchema } from "@rjsf/utils";
 import { execute } from "../api/client";
 import {
   brand,
@@ -60,14 +60,80 @@ const formCss = `
   .cliyard-form input[type="file"] { padding: ${space.sm}px; }
 `;
 
-/** 字段 widget 映射：file → 文件上传（产出 base64），password → 密码框 */
+/**
+ * TagsField：array 类型字段渲染为全宽文本输入框。
+ * 用户输入逗号分隔的多个值，提交时拆分为数组。
+ * 替代 rjsf 默认的「小方块 + 添加按钮」控件，与单值输入框风格统一。
+ */
+function TagsField({ schema, value, onChange, disabled, id, required }: FieldProps) {
+  const inputId = id || "tags-input";
+  const title = (schema?.title as string) || "";
+  const description = (schema?.description as string) || "";
+  const arr: string[] = Array.isArray(value) ? (value as string[]) : [];
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const items = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    onChange(items);
+  };
+
+  const tagsInputCss: CSSProperties = {
+    width: "100%",
+    borderRadius: radius.md,
+    border: `1px solid ${neutral[200]}`,
+    backgroundColor: "#FFFFFF",
+    padding: `${space.sm}px ${space.md}px`,
+    fontSize: fontSize.md,
+    color: neutral[800],
+    fontFamily: fontFamily.mono,
+    outline: "none",
+    boxShadow: shadow.sm,
+    boxSizing: "border-box",
+    transition: "border-color .15s ease, box-shadow .15s ease",
+  };
+
+  return (
+    <div className="form-group" style={{ marginBottom: space.lg, display: "flex", flexDirection: "column", gap: space.sm }}>
+      <label
+        htmlFor={inputId}
+        style={{
+          fontFamily: fontFamily.mono,
+          fontSize: fontSize.xs,
+          fontWeight: 600,
+          color: neutral[700],
+        }}
+      >
+        {title}
+        {required && <span style={{ color: statusColors.error.color, marginLeft: 2 }}>*</span>}
+      </label>
+      {description && (
+        <div style={{ fontSize: fontSize.xs, color: neutral[400] }}>{description}</div>
+      )}
+      <input
+        id={inputId}
+        type="text"
+        style={tagsInputCss}
+        disabled={disabled}
+        placeholder="多个值用逗号分隔"
+        value={arr.join(", ")}
+        onChange={handleChange}
+      />
+    </div>
+  );
+}
+
+/** 字段 widget 映射：file → 文件上传（产出 base64），password → 密码框；array → TagsField */
 function buildUiSchema(schema: Record<string, unknown>): UiSchema {
   const properties = (schema.properties ?? {}) as Record<string, RJSFSchema>;
   const ui: UiSchema = { "ui:submitButtonOptions": { norender: true } };
   for (const name of Object.keys(properties)) {
-    const format = properties[name].format;
-    if (format === "binary") ui[name] = { "ui:widget": "file" };
-    else if (format === "password") ui[name] = { "ui:widget": "password" };
+    const prop = properties[name];
+    if (prop.type === "array") ui[name] = { "ui:field": "tags" };
+    else if (prop.format === "binary") ui[name] = { "ui:widget": "file" };
+    else if (prop.format === "password") ui[name] = { "ui:widget": "password" };
   }
   return ui;
 }
@@ -195,6 +261,7 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
             schema={schema as RJSFSchema}
             uiSchema={uiSchema}
             validator={validator}
+            fields={{ tags: TagsField }}
             onSubmit={({ formData }) => {
               void run(flattenFileParams((formData ?? {}) as Record<string, unknown>));
             }}
