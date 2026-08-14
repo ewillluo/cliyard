@@ -5,9 +5,9 @@
 ``spec_dir`` 由内部调用 :func:`cliyard.engine.loader.load_service` /
 :func:`cliyard.engine.loader.load_flows` 加载。
 
-类型映射与 ``src/cliyard/validate/types.py`` 一致；labels 解析与
-``src/cliyard/engine/builder.py::_resolve_labels`` 等价——本模块自实现
-等价逻辑，避免 import builder 引入 click 依赖及 server↔engine 耦合。
+类型映射与 ``src/cliyard/validate/types.py`` 一致；labels 解析复用
+``cliyard.engine.labels.resolve_labels``（与 Click 命令树 builder 共用，
+避免重复实现）。
 
 Example::
 
@@ -21,28 +21,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from cliyard.engine.labels import resolve_labels
 from cliyard.engine.loader import load_flows, load_service
 
 # JSON Schema 属性位置的固定遍历顺序（与 method params 的 YAML 分组一致）
 _PARAM_LOCATIONS = ("path", "query", "header", "body", "argument")
-
-
-# ---------------------------------------------------------------------------
-# labels 解析（与 builder._resolve_labels 等价）
-# ---------------------------------------------------------------------------
-
-
-def _resolve_labels(method_spec: dict[str, Any]) -> list[str]:
-    """从 method spec 的 ``labels`` 字段解析标签列表。
-
-    * ``list`` → 原样返回；
-    * 标量（str）→ 包装为单元素 list；
-    * 缺失 → 空 list。
-    """
-    labels = method_spec.get("labels")
-    if labels is not None:
-        return labels if isinstance(labels, list) else [str(labels)]
-    return []
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +214,7 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
             commands.append(
                 {
                     "name": mname,
-                    "labels": _resolve_labels(method_spec),
+                    "labels": resolve_labels(method_spec),
                     "desc": method_spec.get("description") or mname,
                     "path": path,
                     "method": method,

@@ -23,6 +23,7 @@ from typing import Any, Callable
 import click
 
 from cliyard.engine.flow import FlowSpec
+from cliyard.engine.labels import resolve_labels
 from cliyard.server.redact import is_sensitive_key, redact_sensitive
 
 
@@ -667,14 +668,6 @@ def _make_callback(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_labels(method_spec: dict[str, Any]) -> list[str]:
-    """Resolve the ``labels`` list from a method spec."""
-    labels = method_spec.get("labels")
-    if labels is not None:
-        return labels if isinstance(labels, list) else [str(labels)]
-    return []
-
-
 def _format_command_label(subcommand: str, cmd: click.Command) -> str:
     """Build the display label for a command, appending any labels."""
     labels: list[str] = getattr(cmd, "labels", None) or []
@@ -760,7 +753,7 @@ def build_list_command(resource_spec: dict[str, Any], ctx: ServiceContext) -> cl
         params=click_params,
         short_help=method_spec.get("description") or "List resources",
     )
-    cmd.labels = _resolve_labels(method_spec)
+    cmd.labels = resolve_labels(method_spec)
     return cmd
 
 
@@ -815,7 +808,7 @@ def build_operation_command(
         params=click_params,
         short_help=method_spec.get("description") or f"{http_method} operation",
     )
-    cmd.labels = _resolve_labels(method_spec)
+    cmd.labels = resolve_labels(method_spec)
     return cmd
 
 

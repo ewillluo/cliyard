@@ -2,7 +2,8 @@
 
 递归遍历任意嵌套对象，将键名（大小写不敏感、子串匹配）命中
 ``token`` / ``password`` / ``authorization`` / ``secret`` /
-``api_key`` / ``access_key`` 的值替换为 ``***``，避免敏感原始值
+``api_key`` / ``access_key`` / ``credential`` / ``passphrase`` /
+``pwd`` / ``jwt`` / ``bearer`` 的值替换为 ``***``，避免敏感原始值
 通过事件流出到前端或日志。
 
 Example::
@@ -22,6 +23,11 @@ _SENSITIVE_KEYWORDS = (
     "secret",
     "apikey",
     "accesskey",
+    "credential",
+    "passphrase",
+    "pwd",
+    "jwt",
+    "bearer",
 )
 
 

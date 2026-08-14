@@ -36,16 +36,34 @@ _WEBUI_DIST = _PROJECT_ROOT / "webui" / "dist"
 # SQLite 执行历史库路径（测试可 monkeypatch 覆盖）。
 _HISTORY_DB = DEFAULT_HISTORY_DB_PATH
 
-# Vite dev server origins (see docs/cliyard-web design).
+# Vite dev server origins (see docs/cliyard-web design). 可通过
+# ``create_app(..., cors_origins=...)`` 参数或 ``CLIYARD_CORS_ORIGINS``
+# 环境变量（逗号分隔）覆盖，供生产部署放开前端域名。
 _DEV_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
 
+# CORS origins 环境变量名（逗号分隔；空值/未设置回退 _DEV_ORIGINS）。
+_CORS_ORIGINS_ENV = "CLIYARD_CORS_ORIGINS"
+
 _BRIDGE_NOT_BUILT_MESSAGE = "前端未构建，请先 cd webui && npm run build"
 
 
-def create_app(spec_dir: str | os.PathLike[str]) -> FastAPI:
+def _resolve_cors_origins(cors_origins: list[str] | None) -> list[str]:
+    """解析 CORS origins：显式参数 > 环境变量 > 默认开发源。"""
+    if cors_origins is not None:
+        return cors_origins
+    env = os.environ.get(_CORS_ORIGINS_ENV)
+    if env:
+        return [origin.strip() for origin in env.split(",") if origin.strip()]
+    return _DEV_ORIGINS
+
+
+def create_app(
+    spec_dir: str | os.PathLike[str],
+    cors_origins: list[str] | None = None,
+) -> FastAPI:
     """Build the FastAPI application for a YAML spec directory.
 
     Loads the service/flow specs once, injects them into ``app.state``,
@@ -55,6 +73,10 @@ def create_app(spec_dir: str | os.PathLike[str]) -> FastAPI:
     Args:
         spec_dir: Path to the cliyard spec directory (must contain
             ``_auth.yaml``).
+        cors_origins: Explicit CORS ``allow_origins`` list. Defaults to
+            ``None`` → resolve from the ``CLIYARD_CORS_ORIGINS`` environment
+            variable (comma-separated), falling back to the Vite dev origins
+            (``_DEV_ORIGINS``).
 
     Returns:
         A configured :class:`fastapi.FastAPI` instance.
@@ -87,7 +109,7 @@ def create_app(spec_dir: str | os.PathLike[str]) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_DEV_ORIGINS,
+        allow_origins=_resolve_cors_origins(cors_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

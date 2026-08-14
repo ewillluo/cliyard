@@ -6,10 +6,14 @@
 
 存储策略：
 
-* ``record_start`` 落一条 ``running`` 记录，并保存完整参数 JSON **原文**
-  （供 replay 原样重放）；
+* ``record_start`` 落一条 ``running`` 记录，params 先经 ``redact_sensitive``
+  脱敏再 JSON 序列化落库——DB 中永不出现 token / password / secret 等
+  敏感键的明文值（敏感键一律 ``***``）；
 * ``list`` / ``get`` 只返回脱敏摘要（``redact_sensitive``），token /
   password / authorization / secret 等敏感键一律 ``***``，明文永不流出；
+* ``get_params`` 供 replay 提交：直接返回 DB 中已脱敏的 params（对旧库
+  明文数据再套一层 ``redact_sensitive`` 兜底）——重放时敏感字段为
+  ``***``，需要真实凭证的用户需重新填写；
 * ``result_preview`` 取终态前最后一个 ``format`` / ``step_done`` 事件的
   preview，截断 2000 字符。
 """
@@ -127,7 +131,7 @@ class HistoryStore:
     # ------------------------------------------------------------------
 
     def record_start(self, execution: "Execution") -> None:
-        """执行启动时落一条 running 记录（含 params 原文，供 replay）。"""
+        """执行启动时落一条 running 记录（params 脱敏后落库）。"""
         conn = self._connect()
         try:
             with conn:
@@ -141,7 +145,11 @@ class HistoryStore:
                         execution.kind,
                         execution.target,
                         _command_display(execution),
-                        json.dumps(execution.params, ensure_ascii=False, default=str),
+                        json.dumps(
+                            redact_sensitive(execution.params),
+                            ensure_ascii=False,
+                            default=str,
+                        ),
                     ),
                 )
         finally:
@@ -214,9 +222,12 @@ class HistoryStore:
         return self._row_to_item(row) if row is not None else None
 
     def get_params(self, execution_id: str) -> dict[str, Any] | None:
-        """取重放所需原始参数（kind/target/params 原文，不脱敏）。
+        """取重放所需参数（kind/target/脱敏后的 params）。
 
-        replay 需要原文重新提交，因此这里不经过 ``_params_summary``。
+        历史库只存脱敏版本（``record_start`` 落库前已 ``redact_sensitive``）；
+        此处对 DB 读出的值再套一层脱敏兜底，覆盖旧库中可能存在的明文历史
+        记录。replay 提交的敏感字段为 ``***``，需要真实凭证的用户需重新
+        填写。
         """
         conn = self._connect()
         try:
@@ -232,7 +243,11 @@ class HistoryStore:
             params = json.loads(row["params_json"] or "{}")
         except json.JSONDecodeError:
             params = {}
-        return {"kind": row["kind"], "target": row["target"], "params": params}
+        return {
+            "kind": row["kind"],
+            "target": row["target"],
+            "params": redact_sensitive(params),
+        }
 
     # ------------------------------------------------------------------
     # 清空

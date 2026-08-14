@@ -7,7 +7,8 @@ Covers:
 - Executor wiring: ``ExecutionManager`` records start/finish rows, including
   the error path (status=error) and result_preview extraction
 - API surface: GET /api/executions, POST /api/executions/{id}/replay,
-  DELETE /api/executions, params redaction (plaintext token never leaks)
+  DELETE /api/executions, params redaction (plaintext token never leaks to
+  the DB or the API responses)
 
 All pipeline calls are monkeypatched so no real network traffic happens.
 """
@@ -155,14 +156,47 @@ def test_params_redacted_in_list_and_get(tmp_path):
     assert got["params"]["token"] == "***"
 
 
-def test_get_params_returns_raw_for_replay(tmp_path):
+def test_record_start_stores_redacted_params_in_db(tmp_path):
+    """DB 中 params_json 永不含明文敏感值（record_start 落库前已脱敏）。"""
     store = HistoryStore(tmp_path / "h.db")
-    store.record_start(_execution(id="p1", params={"token": "plain-raw", "page": 1}))
+    store.record_start(
+        _execution(
+            id="p1",
+            params={
+                "token": "plain-raw",
+                "password": "p@ss-word",
+                "page": 1,
+            },
+        )
+    )
+
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "h.db")
+    try:
+        row = conn.execute(
+            "SELECT params_json FROM executions WHERE id = 'p1'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    stored = row[0]
+    assert "plain-raw" not in stored
+    assert "p@ss-word" not in stored
+    assert json.loads(stored) == {"token": "***", "password": "***", "page": 1}
+
+
+def test_get_params_returns_redacted_for_replay(tmp_path):
+    """replay 只拿到脱敏 params：敏感字段为 ***，明文永不流出。"""
+    store = HistoryStore(tmp_path / "h.db")
+    store.record_start(
+        _execution(id="p1", params={"token": "plain-raw", "page": 1})
+    )
     raw = store.get_params("p1")
     assert raw == {
         "kind": "command",
         "target": "repos.list",
-        "params": {"token": "plain-raw", "page": 1},
+        "params": {"token": "***", "page": 1},
     }
     assert store.get_params("ghost") is None
 
@@ -312,6 +346,24 @@ def test_api_params_redacted(client):
     body = resp.json()
     assert body["items"][0]["params"]["token"] == "***"
     assert "plaintext-token-123" not in resp.text
+
+
+def test_api_replay_redacts_sensitive_params(client):
+    """replay 提交的 params 敏感字段为 ***，DB 与执行器均无明文。"""
+    original_id = _run_command(client, {"token": "plaintext-token-123", "page": 1})
+
+    resp = client.post(f"/api/executions/{original_id}/replay")
+    assert resp.status_code == 200
+    new_id = resp.json()["execution_id"]
+
+    new_execution = executor_mod.execution_manager.get(new_id)
+    assert new_execution is not None
+    assert new_execution.done_event.wait(5)
+    assert new_execution.params == {"token": "***", "page": 1}
+
+    store = client.app.state.history_store
+    replay_item = store.list()["items"][0]
+    assert replay_item["params"]["token"] == "***"
 
 
 def test_api_replay_creates_new_execution(client):

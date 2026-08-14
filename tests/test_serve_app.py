@@ -9,12 +9,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 from cliyard.server import app as server_app
-from cliyard.server.app import create_app
+from cliyard.server.app import _DEV_ORIGINS, create_app
 
 _DEMO_SPEC = Path(__file__).resolve().parent.parent / "examples" / "demo"
+
+
+def _cors_origins(app):
+    """Extract the configured allow_origins from the CORS middleware."""
+    for middleware in app.user_middleware:
+        if middleware.cls is CORSMiddleware:
+            return middleware.kwargs["allow_origins"]
+    return None
 
 
 @pytest.fixture()
@@ -77,3 +86,39 @@ def test_create_app_dir_without_auth_yaml_raises(tmp_path):
     """An existing dir without ``_auth.yaml`` is not a valid spec dir."""
     with pytest.raises(FileNotFoundError):
         create_app(str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# CORS origins configurability
+# ---------------------------------------------------------------------------
+
+
+def test_cors_defaults_to_dev_origins(monkeypatch):
+    monkeypatch.delenv("CLIYARD_CORS_ORIGINS", raising=False)
+    app = create_app(str(_DEMO_SPEC))
+    assert _cors_origins(app) == _DEV_ORIGINS
+
+
+def test_cors_create_app_argument_overrides(monkeypatch):
+    monkeypatch.delenv("CLIYARD_CORS_ORIGINS", raising=False)
+    app = create_app(str(_DEMO_SPEC), cors_origins=["http://prod.example.com"])
+    assert _cors_origins(app) == ["http://prod.example.com"]
+
+
+def test_cors_environment_variable_overrides(monkeypatch):
+    monkeypatch.setenv(
+        "CLIYARD_CORS_ORIGINS", "http://a.example.com, http://b.example.com"
+    )
+    app = create_app(str(_DEMO_SPEC))
+    assert _cors_origins(app) == [
+        "http://a.example.com",
+        "http://b.example.com",
+    ]
+
+
+def test_cors_explicit_argument_beats_environment(monkeypatch):
+    monkeypatch.setenv("CLIYARD_CORS_ORIGINS", "http://env.example.com")
+    app = create_app(
+        str(_DEMO_SPEC), cors_origins=["http://arg.example.com"]
+    )
+    assert _cors_origins(app) == ["http://arg.example.com"]

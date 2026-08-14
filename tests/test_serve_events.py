@@ -333,6 +333,11 @@ def test_redact_sensitive_unit():
     assert is_sensitive_key("Authorization")
     assert is_sensitive_key("apiToken")
     assert is_sensitive_key("X-Api-Key")
+    assert is_sensitive_key("credentials")
+    assert is_sensitive_key("passphrase")
+    assert is_sensitive_key("pwd_expire_time")
+    assert is_sensitive_key("jwt")
+    assert is_sensitive_key("Bearer")
     assert not is_sensitive_key("name")
 
     redacted = redact_sensitive({"header": {"Authorization": "Bearer abc", "X-Tenant": "t1"}})
@@ -341,6 +346,24 @@ def test_redact_sensitive_unit():
     assert redact_sensitive([{"token": "x"}, {"id": 1}]) == [{"token": "***"}, {"id": 1}]
     assert redact_sensitive("plain") == "plain"
     assert redact_sensitive(None) is None
+
+    redacted2 = redact_sensitive(
+        {
+            "credentials": {"pwd": "s3cret"},
+            "jwt": "eyJhbGci",
+            "passphrase": "hunter2",
+            "bearer": "abc.def",
+            "page": 1,
+        }
+    )
+    # credentials 键命中 credential 关键词 → 整个值替换为 ***（不递归内部）
+    assert redacted2 == {
+        "credentials": "***",
+        "jwt": "***",
+        "passphrase": "***",
+        "bearer": "***",
+        "page": 1,
+    }
 
 
 def test_step_result_preview_not_truncated_for_large_result():
