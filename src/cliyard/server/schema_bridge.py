@@ -201,12 +201,12 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
         "flows": [{"name", "description", "command", "params_schema",
         "step_count"}]}``
 
-        分组为**两级聚合**（对齐 CLI ``<group> <resource> <method>`` 结构）：
-        ``group`` 来自资源的 ``group`` 字段（无则用资源 name 自身），
-        ``desc`` 优先取 ``_groups.yaml`` 的 description，缺省回退资源
-        description；``resources`` 为该组下的子资源（资源 name +
-        description + 方法命令）。``commands`` 为兼容字段，保留该组
-        全部命令的拍平列表（无 ``group`` 字段的扁平资源时二者等价）。
+        分组对齐 CLI ``<group> <resource> <method>`` 结构：``group`` 来自资源的
+        ``group`` 字段（无则用资源 name 自身），``desc`` 优先取 ``_groups.yaml``
+        的 description，缺省回退资源 description。有 ``group`` 字段的资源写入
+        ``resources``（三级：组 > 资源 > 命令）；无 ``group`` 字段的扁平资源
+        ``resources`` 为空数组、命令直接挂组下（二级，前端据此判定扁平渲染）。
+        ``commands`` 为兼容字段，保留该组全部命令的拍平列表。
 
     Raises:
         FileNotFoundError: spec_dir 缺少 _auth.yaml 时由 load_service 抛出。
@@ -249,7 +249,9 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
             _gdesc = (group_defs.get(gname) or {}).get("description")
             entry["desc"] = _gdesc or rdesc or f"{gname} 管理"
         entry["commands"].extend(commands)
-        entry["resources"].append({"name": rname, "desc": rdesc, "commands": commands})
+        if resource.get("group"):
+            # 有 group → 三级：组 > 资源 > 命令；无 group 则 resources 保持 [] 触发前端二级扁平分支
+            entry["resources"].append({"name": rname, "desc": rdesc, "commands": commands})
 
     groups = list(grouped.values())
 

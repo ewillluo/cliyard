@@ -111,17 +111,43 @@ def test_command_tree_group_desc_fallback_to_resource(tmp_path):
     assert group["desc"] == "Foo 资源"
 
 
-def test_command_tree_flat_group_keeps_single_resource():
-    """无 group 字段的扁平资源：group = 资源 name，resources 单元素。"""
+def test_command_tree_flat_group_empty_resources():
+    """无 group 字段的扁平资源：group = 资源 name，resources 为空数组（前端二级扁平）。"""
     tree = build_command_tree(SPEC_DIR)
     repos = next(g for g in tree["groups"] if g["group"] == "repos")
 
     assert repos["desc"] == "Repos"
-    assert len(repos["resources"]) == 1
-    res = repos["resources"][0]
-    assert res["name"] == "repos"
-    assert res["desc"] == "Repos"
-    assert {c["name"] for c in res["commands"]} == {"list", "create"}
+    assert repos["resources"] == []
+    assert {c["name"] for c in repos["commands"]} == {"list", "create"}
+
+
+def test_command_tree_no_group_resource_flat(tmp_path):
+    """无 group 字段资源（仅 name/path/methods）：输出组 resources==[] 且 commands 非空。"""
+    (tmp_path / "_auth.yaml").write_text(
+        "name: t\nserver:\n  base_url: http://x\n", encoding="utf-8"
+    )
+    (tmp_path / "repo.yaml").write_text(
+        "name: repo\n"
+        "description: 仓库管理\n"
+        "path: repos\n"
+        "methods:\n"
+        "  list:\n"
+        "    http: {method: GET}\n"
+        "  create:\n"
+        "    http: {method: POST}\n",
+        encoding="utf-8",
+    )
+
+    tree = build_command_tree(tmp_path)
+    groups = {g["group"]: g for g in tree["groups"]}
+
+    assert set(groups) == {"repo"}
+    repo = groups["repo"]
+    assert repo["desc"] == "仓库管理"
+    assert repo["resources"] == []
+    assert {c["name"] for c in repo["commands"]} == {"list", "create"}
+    # commands 与 resources 无冗余嵌套：资源只出现一次（拍平列表）
+    assert len(repo["commands"]) == 2
 
 
 def test_command_tree_labels_empty_when_missing():
@@ -317,12 +343,29 @@ def test_labels_parsing_list_str_and_missing(tmp_path):
 
 def test_demo_has_user_and_pet_groups():
     tree = build_command_tree(DEMO_DIR)
-    groups = {g["group"] for g in tree["groups"]}
-    assert {"user", "pet"} <= groups
+    groups = {g["group"]: g for g in tree["groups"]}
+    assert {"user", "pet"} <= set(groups)
 
     user = next(g for g in tree["groups"] if g["group"] == "user")
     user_cmds = {c["name"] for c in user["commands"]}
     assert {"list", "create", "avatar"} <= user_cmds
+
+
+def test_demo_group_hierarchy_matches_group_field():
+    """demo 中无 group 的 pet/user 渲染为二级扁平（resources=[]），store_order 有 group 为三级。"""
+    tree = build_command_tree(DEMO_DIR)
+    groups = {g["group"]: g for g in tree["groups"]}
+
+    pet = groups["pet"]
+    assert pet["resources"] == []
+    assert {c["name"] for c in pet["commands"]} == {"list", "get", "create", "update", "delete"}
+
+    user = groups["user"]
+    assert user["resources"] == []
+
+    store = groups["store"]
+    order = next(r for r in store["resources"] if r["name"] == "order")
+    assert {"list", "place"} <= {c["name"] for c in order["commands"]}
 
 
 def test_demo_add_user_flow_params_schema():
