@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import queue
 import re
@@ -41,11 +42,20 @@ from pathlib import Path
 from typing import Any, Callable, Generator
 from uuid import uuid4
 
+from anyio.from_thread import run as _from_thread_run
+
 from cliyard.engine.builder import execute_pipeline
 from cliyard.engine.loader import load_flows, load_service
 from cliyard.engine.orchestrator import _lookup_resource_method, run_flow
 from cliyard.server.context import build_service_context
 from cliyard.server.history import DEFAULT_HISTORY_DB_PATH, HistoryStore
+
+logger = logging.getLogger("cliyard.server.executor")
+
+# 内存注册表容量上限：超限时淘汰最旧的已终态执行，防止无界增长。
+MAX_EXECUTIONS = 500
+# 单个 base64 file 参数解码后允许的最大字节数（超限拒绝写临时文件）。
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
 
 # 事件名固定顺序（供测试/前端参照）：命令 validate→auth→request→response→format→done
 # 事件统一格式：{"type": name, **payload, "time": iso}
@@ -120,7 +130,8 @@ def _suffix_from_mime(header: str) -> str:
 def _write_base64_temp_file(value: str) -> str | None:
     """把 base64 字符串（data URI 或纯 base64）写入临时文件，返回路径。
 
-    不是 base64（或解码失败）时返回 ``None``，调用方保持原值不动。
+    不是 base64（或解码失败）返回 ``None``，调用方保持原值不动；解码后
+    字节数超过 ``MAX_UPLOAD_BYTES`` 同样返回 ``None`` 并记录警告。
     """
     if not isinstance(value, str) or not value:
         return None
@@ -134,15 +145,49 @@ def _write_base64_temp_file(value: str) -> str | None:
         data = value
     if data is None:
         return None
+    compact = re.sub(r"\s+", "", data)
+    # 解码前粗判：base64 长度 → 解码字节数近似 len*3//4，避免为超大输入做解码
+    if len(compact) * 3 // 4 > MAX_UPLOAD_BYTES:
+        logger.warning(
+            "Rejecting base64 upload of ~%d bytes (limit %d)",
+            len(compact) * 3 // 4,
+            MAX_UPLOAD_BYTES,
+        )
+        return None
     try:
         raw = base64.b64decode(data, validate=True)
     except Exception:
         return None
+    if len(raw) > MAX_UPLOAD_BYTES:
+        logger.warning(
+            "Rejecting base64 upload of %d bytes (limit %d)",
+            len(raw),
+            MAX_UPLOAD_BYTES,
+        )
+        return None
     with tempfile.NamedTemporaryFile(
-        delete=False, suffix=suffix, prefix="cliyard-upload-"
+        delete=False,
+        suffix=suffix,
+        prefix=f"cliyard-upload-{uuid4().hex[:8]}-",
     ) as f:
         f.write(raw)
         return f.name
+
+
+def _request_disconnected(request: Any) -> bool:
+    """尽力检测 SSE 客户端是否已断连。
+
+    ``iter_events`` 在 sse-starlette 的 AnyIO worker 线程中运行，通过
+    ``anyio.from_thread.run`` 桥接到宿主事件循环调用 async 的
+    ``Request.is_disconnected()``；检测不可用（无事件循环 / 非 ASGI 场景）
+    时降级为 ``False``，不中断流。单元测试可 monkeypatch 本函数。
+    """
+    if request is None:
+        return False
+    try:
+        return bool(_from_thread_run(request.is_disconnected))
+    except Exception:
+        return False
 
 
 class ExecutionManager:
@@ -155,6 +200,7 @@ class ExecutionManager:
 
     def __init__(self, history_store: HistoryStore | None = None) -> None:
         self._executions: dict[str, Execution] = {}
+        self._order: list[str] = []
         self._lock = threading.Lock()
         self._history_store = history_store
         self._history_lock = threading.Lock()
@@ -247,11 +293,15 @@ class ExecutionManager:
         with self._lock:
             return self._executions.get(execution_id)
 
-    def iter_events(self, execution_id: str) -> Generator[dict[str, str], None, None]:
+    def iter_events(
+        self, execution_id: str, request: Any = None
+    ) -> Generator[dict[str, str], None, None]:
         """SSE 事件生成器：从 queue 逐条产出 ``{"event", "data"}`` dict。
 
-        以 ``done`` 事件或 ``done_event`` 置位后队列耗尽作为结束信号。
-        事件已全部入队但执行尚未开始时也能正确等待（``queue.get(timeout=1)``）。
+        以 ``done`` 事件或 ``done_event`` 置位后队列耗尽作为结束信号；
+        传入 ``request``（Starlette/FastAPI Request）时，客户端断连会提前
+        终止生成器，避免后台线程空转。事件已全部入队但执行尚未开始时也能
+        正确等待（``queue.get(timeout=1)``）。
         """
         execution = self.get(execution_id)
         if execution is None:
@@ -263,13 +313,27 @@ class ExecutionManager:
                 ),
             }
             return
+        checks = 0
         while True:
             try:
                 event = execution.queue.get(timeout=1)
             except queue.Empty:
+                if _request_disconnected(request):
+                    logger.info(
+                        "SSE client disconnected from execution %s; stopping stream",
+                        execution_id,
+                    )
+                    return
                 if execution.done_event.is_set():
                     return
                 continue
+            checks += 1
+            if checks % 10 == 0 and _request_disconnected(request):
+                logger.info(
+                    "SSE client disconnected from execution %s; stopping stream",
+                    execution_id,
+                )
+                return
             yield {
                 "event": "message",
                 "data": json.dumps(event, ensure_ascii=False),
@@ -366,9 +430,36 @@ class ExecutionManager:
             created_at=_now_iso(),
         )
         with self._lock:
+            self._evict_oldest_terminal()
             self._executions[execution.id] = execution
+            self._order.append(execution.id)
         self._safe_record_start(execution)
         return execution
+
+    def _evict_oldest_terminal(self) -> None:
+        """注册表满时按插入顺序淘汰最旧的已终态执行；全部 running 则跳过。
+
+        只淘汰 ``done``/``error`` 的终态条目——后台线程已结束、SSE/轮询
+        均已消费完毕，移出后无并发读写风险。
+        """
+        if len(self._executions) < MAX_EXECUTIONS:
+            return
+        for execution_id in self._order:
+            execution = self._executions.get(execution_id)
+            if execution is not None and execution.status in ("done", "error"):
+                del self._executions[execution_id]
+                self._order.remove(execution_id)
+                logger.info(
+                    "Evicted terminal execution %s (%s) from registry",
+                    execution_id,
+                    execution.status,
+                )
+                return
+        logger.warning(
+            "Execution registry at capacity (%d) with no terminal entries; "
+            "skipping eviction",
+            MAX_EXECUTIONS,
+        )
 
     def _emit(self, execution: Execution, name: str, payload: dict[str, Any]) -> None:
         """把 ``(name, payload)`` 事件归一化为 ``{"type", ...payload, "time"}``。"""
@@ -393,8 +484,9 @@ class ExecutionManager:
     def _finish(self, execution: Execution) -> None:
         """终态推送 ``done`` 事件并置位 done_event（任何路径都会走到）。
 
-        顺序：先写历史库（record_finish 失败静默），再置位 done_event——
-        保证调用方 ``done_event.wait()`` 返回后历史记录已落库。
+        顺序：先写历史库（record_finish 失败记录日志），再推 SSE done 事件、
+        置位 done_event——保证 SSE 收到 done / ``done_event.wait()`` 返回时
+        历史记录已落库，轮询兜底不会读到 running。
         """
         event = {
             "type": "done",
@@ -404,23 +496,36 @@ class ExecutionManager:
         }
         with self._lock:
             execution.steps.append(event)
-        execution.queue.put(event)
         self._safe_record_finish(execution)
+        execution.queue.put(event)
         execution.done_event.set()
 
     def _safe_record_start(self, execution: Execution) -> None:
-        """历史落 running 记录；任何异常静默吞掉（不阻塞执行流程）。"""
+        """历史落 running 记录；异常记录日志但不阻塞执行流程。"""
         try:
             self.history_store.record_start(execution)
         except Exception:
-            pass
+            logger.exception(
+                "Failed to record execution start "
+                "(id=%s kind=%s target=%s)",
+                execution.id,
+                execution.kind,
+                execution.target,
+            )
 
     def _safe_record_finish(self, execution: Execution) -> None:
-        """历史落终态记录；任何异常静默吞掉（done 事件推送不受影响）。"""
+        """历史落终态记录；异常记录日志但不阻塞 done 事件推送。"""
         try:
             self.history_store.record_finish(execution)
         except Exception:
-            pass
+            logger.exception(
+                "Failed to record execution finish "
+                "(id=%s kind=%s target=%s status=%s)",
+                execution.id,
+                execution.kind,
+                execution.target,
+                execution.status,
+            )
 
     # ------------------------------------------------------------------
     # file 参数桥接
@@ -455,12 +560,14 @@ class ExecutionManager:
 
     @staticmethod
     def _cleanup_tmp_files(paths: list[str]) -> None:
-        """删除临时文件（忽略 OSError，尽力清理）。"""
+        """删除临时文件；清理失败记录警告（避免静默泄漏）。"""
         for path in paths:
             try:
                 os.unlink(path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning(
+                    "Failed to clean up temp file %s: %s", path, exc
+                )
 
 
 # 模块级单例：所有 /api 路由共享同一注册表

@@ -76,7 +76,7 @@ async def stream_execution(request: Request, execution_id: str):
             status_code=404,
             content={"detail": f"execution {execution_id} not found"},
         )
-    return EventSourceResponse(execution_manager.iter_events(execution_id))
+    return EventSourceResponse(execution_manager.iter_events(execution_id, request=request))
 
 
 @router.get("/executions/{execution_id}")

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import queue
 from pathlib import Path
@@ -471,3 +472,154 @@ def test_api_execute_flow(client, monkeypatch):
         content = stream.read().decode()
 
     assert _sse_event_types(content) == ["step_start", "step_done", "flow_end", "done"]
+
+
+# ===========================================================================
+# SSE 断连检测 / 历史日志 / 注册表淘汰 / base64 上传限制
+# ===========================================================================
+
+
+def _make_execution(execution_id: str, status: str = "running"):
+    """构造一个未注册的后台执行对象（测试用，不触线真实历史库）。"""
+    return executor_mod.Execution(
+        id=execution_id,
+        spec_dir=".",
+        kind="command",
+        target="a.b",
+        params={},
+        status=status,
+        created_at=executor_mod._now_iso(),
+    )
+
+
+def test_iter_events_stops_when_client_disconnects(monkeypatch):
+    """客户端断连后 iter_events 提前结束，不再等待队列事件。"""
+    manager = executor_mod.ExecutionManager()
+    execution = _make_execution("disconnect-test")
+    with manager._lock:
+        manager._executions[execution.id] = execution
+        manager._order.append(execution.id)
+    execution.queue.put({"type": "validate", "time": executor_mod._now_iso()})
+
+    monkeypatch.setattr(executor_mod, "_request_disconnected", lambda request: True)
+
+    gen = manager.iter_events("disconnect-test", request=object())
+    first = next(gen)
+    assert json.loads(first["data"])["type"] == "validate"
+    # 队列已空 + 已断连 → 第二次迭代应立即结束而不是阻塞等队列
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
+def test_iter_events_ignores_missing_request():
+    """不传 request 时行为不变：正常等待队列事件直至 done。"""
+    manager = executor_mod.ExecutionManager()
+    execution = _make_execution("no-request")
+    with manager._lock:
+        manager._executions[execution.id] = execution
+        manager._order.append(execution.id)
+    execution.queue.put({"type": "done", "time": executor_mod._now_iso(), "status": "done"})
+
+    gen = manager.iter_events("no-request")
+    events = list(gen)
+    assert json.loads(events[0]["data"])["type"] == "done"
+
+
+def test_safe_record_start_logs_failure(caplog):
+    """历史 start 写失败时记录 ERROR 日志（不再静默吞掉）。"""
+    manager = executor_mod.ExecutionManager()
+    store = MagicMock()
+    store.record_start.side_effect = RuntimeError("db locked")
+    manager.history_store = store
+    execution = _make_execution("hist-start")
+
+    with caplog.at_level(logging.ERROR, logger="cliyard.server.executor"):
+        manager._safe_record_start(execution)
+
+    assert "Failed to record execution start" in caplog.text
+    assert "db locked" in caplog.text
+    assert "hist-start" in caplog.text
+
+
+def test_safe_record_finish_logs_failure(caplog):
+    """历史 finish 写失败时记录 ERROR 日志（不阻塞调用方）。"""
+    manager = executor_mod.ExecutionManager()
+    store = MagicMock()
+    store.record_finish.side_effect = RuntimeError("disk full")
+    manager.history_store = store
+    execution = _make_execution("hist-finish", status="done")
+
+    with caplog.at_level(logging.ERROR, logger="cliyard.server.executor"):
+        manager._safe_record_finish(execution)
+
+    assert "Failed to record execution finish" in caplog.text
+    assert "disk full" in caplog.text
+    assert "hist-finish" in caplog.text
+
+
+def test_registry_evicts_oldest_terminal(monkeypatch):
+    """注册表满时淘汰最旧的已终态执行，running 保留。"""
+    monkeypatch.setattr(executor_mod, "MAX_EXECUTIONS", 3)
+    manager = executor_mod.ExecutionManager()
+    manager.history_store = MagicMock()  # 避免真实历史库写入
+
+    e1 = manager._create_execution(".", "command", "a.b", {})
+    e2 = manager._create_execution(".", "command", "a.b", {})
+    e3 = manager._create_execution(".", "command", "a.b", {})
+    e1.status = "done"  # e1 是最早的已终态
+
+    e4 = manager._create_execution(".", "command", "a.b", {})
+
+    assert manager.get(e1.id) is None, "最旧的已终态执行应被淘汰"
+    assert manager.get(e2.id) is not None
+    assert manager.get(e3.id) is not None
+    assert manager.get(e4.id) is not None
+    assert len(manager._executions) == 3
+
+
+def test_registry_skips_eviction_when_all_running(monkeypatch):
+    """全部 running 时不淘汰（不做错误驱逐）。"""
+    monkeypatch.setattr(executor_mod, "MAX_EXECUTIONS", 2)
+    manager = executor_mod.ExecutionManager()
+    manager.history_store = MagicMock()
+
+    e1 = manager._create_execution(".", "command", "a.b", {})
+    e2 = manager._create_execution(".", "command", "a.b", {})
+    e3 = manager._create_execution(".", "command", "a.b", {})
+
+    assert manager.get(e1.id) is not None
+    assert manager.get(e2.id) is not None
+    assert manager.get(e3.id) is not None
+
+
+def test_base64_upload_over_limit_returns_none():
+    """解码后超 MAX_UPLOAD_BYTES 的 base64 返回 None（保持原值）。"""
+    big = base64.b64encode(b"x" * (executor_mod.MAX_UPLOAD_BYTES + 1)).decode()
+    assert executor_mod._write_base64_temp_file(big) is None
+
+
+def test_base64_upload_within_limit_writes_file():
+    """正常大小 base64 正常写临时文件且可清理。"""
+    payload = base64.b64encode(b"small").decode()
+    path = executor_mod._write_base64_temp_file(f"data:text/plain;base64,{payload}")
+    assert path is not None
+    assert path.endswith(".txt")
+    with open(path, "rb") as f:
+        assert f.read() == b"small"
+    os.unlink(path)
+
+
+def test_temp_file_prefix_is_randomized():
+    """临时文件前缀含随机段（同一执行两次写入不同名）。"""
+    manager = executor_mod.ExecutionManager()
+    method_spec = {"params": {"body": [{"name": "file", "type": "file"}]}}
+    payload = base64.b64encode(b"data").decode()
+    params = {"file": f"data:text/plain;base64,{payload}"}
+
+    bridged1, tmp1 = manager._bridge_file_params(method_spec, params)
+    bridged2, tmp2 = manager._bridge_file_params(method_spec, params)
+
+    assert os.path.basename(bridged1["file"]).startswith("cliyard-upload-")
+    assert os.path.basename(bridged1["file"]) != os.path.basename(bridged2["file"])
+    manager._cleanup_tmp_files(tmp1)
+    manager._cleanup_tmp_files(tmp2)
