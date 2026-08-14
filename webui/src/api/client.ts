@@ -211,11 +211,9 @@ export async function clearExecutions(): Promise<void> {
   await request<unknown>("/api/executions", { method: "DELETE" });
 }
 
-/** 重放一次历史执行：读 detail 的 kind/target 后重新提交 */
+/** 重放一次历史执行：调用后端 replay 接口（用原始 params 重新提交） */
 export function replayExecution(id: string): Promise<{ execution_id: string }> {
-  return fetchExecution(id).then((detail) =>
-    execute(detail.kind as "command" | "flow", detail.target),
-  );
+  return request<{ execution_id: string }>(`/api/executions/${id}/replay`, { method: "POST" });
 }
 
 /* ---------------------------------- 认证 profile ---------------------------------- */
