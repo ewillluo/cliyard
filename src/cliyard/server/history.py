@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 # app 层通过模块常量 ``_HISTORY_DB`` 引用，测试可 monkeypatch 覆盖。
 DEFAULT_HISTORY_DB_PATH = Path.home() / ".cliyard" / "serve_history.db"
 
-_RESULT_PREVIEW_MAX = 2000
+_RESULT_PREVIEW_MAX = 20000
 
 
 def _command_display(execution: "Execution") -> str:

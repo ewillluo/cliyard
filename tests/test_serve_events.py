@@ -341,3 +341,16 @@ def test_redact_sensitive_unit():
     assert redact_sensitive([{"token": "x"}, {"id": 1}]) == [{"token": "***"}, {"id": 1}]
     assert redact_sensitive("plain") == "plain"
     assert redact_sensitive(None) is None
+
+
+def test_step_result_preview_not_truncated_for_large_result():
+    """_step_result_preview 默认限制为 20000，大 JSON 结果不再被 500 字符截断。"""
+    from cliyard.engine.orchestrator import _step_result_preview
+
+    large = {"repos": [{"name": f"repo-{i}", "id": i} for i in range(200)]}
+    preview = _step_result_preview(large)
+
+    assert len(preview) > 500  # 旧 500 限制下会被截断
+    assert preview.endswith("}")  # JSON 完整闭合，未被截断
+    assert '"id": 199' in preview  # 尾部内容保留
+    assert len(preview) <= 20000  # 仍受新上限约束

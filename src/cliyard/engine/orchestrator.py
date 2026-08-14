@@ -1435,7 +1435,7 @@ def _show_flow_summary(
         console.print("[bold red] ✗ Flow failed[/bold red]")
 
 
-def _step_result_preview(result: Any, limit: int = 500) -> str:
+def _step_result_preview(result: Any, limit: int = 20000) -> str:
     """Render a step result as a redacted, truncated string for events."""
     text = _format_value(redact_sensitive(result))
     return text[:limit]
