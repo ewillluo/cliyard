@@ -82,7 +82,11 @@ def test_spec_returns_demo_groups_and_flows(client):
     group_names = [g["group"] for g in groups]
     assert "user" in group_names
     assert "pet" in group_names
-    assert "order" in group_names
+    assert "store" in group_names
+
+    # store_order.yaml（group: store, name: order）：两级聚合，order 是 store 组子资源
+    store = next(g for g in groups if g["group"] == "store")
+    assert any(r["name"] == "order" for r in store.get("resources", []))
 
     user = next(g for g in groups if g["group"] == "user")
     commands = {c["name"]: c for c in user["commands"]}

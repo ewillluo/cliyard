@@ -169,6 +169,24 @@ def build_flow_schema(
 # ---------------------------------------------------------------------------
 
 
+def _load_group_definitions(spec_dir: str | Path) -> dict[str, Any]:
+    """读取 ``_groups.yaml`` 分组定义（可选，容错）。
+
+    与 runner.py 的分组逻辑一致（group 名 → ``{"description": ...}``）：
+    文件缺失或解析失败时返回空 dict，不抛异常，保证命令树仍可构建。
+    """
+    groups_file = Path(spec_dir) / "_groups.yaml"
+    if not groups_file.is_file():
+        return {}
+    import yaml
+
+    try:
+        data = yaml.safe_load(groups_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
     """加载 spec 目录并输出命令树 / flow 树元数据。
 
@@ -177,18 +195,27 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
 
     Returns:
         ``{"service": {name, description},
-        "groups": [{"group", "desc", "commands": [{"name", "labels",
-        "desc", "path", "method", "schema"}]}],
+        "groups": [{"group", "desc", "commands", "resources":
+        [{"name", "desc", "commands": [{"name", "labels", "desc", "path",
+        "method", "schema"}]}]}],
         "flows": [{"name", "description", "command", "params_schema",
         "step_count"}]}``
+
+        分组为**两级聚合**（对齐 CLI ``<group> <resource> <method>`` 结构）：
+        ``group`` 来自资源的 ``group`` 字段（无则用资源 name 自身），
+        ``desc`` 优先取 ``_groups.yaml`` 的 description，缺省回退资源
+        description；``resources`` 为该组下的子资源（资源 name +
+        description + 方法命令）。``commands`` 为兼容字段，保留该组
+        全部命令的拍平列表（无 ``group`` 字段的扁平资源时二者等价）。
 
     Raises:
         FileNotFoundError: spec_dir 缺少 _auth.yaml 时由 load_service 抛出。
     """
     service = load_service(spec_dir)
     flows = load_flows(spec_dir)
+    group_defs = _load_group_definitions(spec_dir)
 
-    groups: list[dict[str, Any]] = []
+    grouped: dict[str, dict[str, Any]] = {}
     for resource in service.get("resources", []):
         rname = resource.get("name") or ""
         rdesc = resource.get("description") or rname
@@ -214,7 +241,17 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
                 }
             )
 
-        groups.append({"group": rname, "desc": rdesc, "commands": commands})
+        gname = resource.get("group") or rname
+        entry = grouped.setdefault(
+            gname, {"group": gname, "desc": "", "commands": [], "resources": []}
+        )
+        if not entry["desc"]:
+            _gdesc = (group_defs.get(gname) or {}).get("description")
+            entry["desc"] = _gdesc or rdesc or f"{gname} 管理"
+        entry["commands"].extend(commands)
+        entry["resources"].append({"name": rname, "desc": rdesc, "commands": commands})
+
+    groups = list(grouped.values())
 
     flow_list: list[dict[str, Any]] = []
     for flow in flows:

@@ -45,6 +45,85 @@ def test_command_tree_has_repos_group():
     assert tree["service"]["description"] == "Test service for cliyard runtime pipeline"
 
 
+def test_command_tree_two_level_grouping_with_groups_yaml(tmp_path):
+    """group 字段 + _groups.yaml：资源聚合到顶层组，desc 取 _groups.yaml。"""
+    (tmp_path / "_auth.yaml").write_text(
+        "name: t\nserver:\n  base_url: http://x\n", encoding="utf-8"
+    )
+    (tmp_path / "_groups.yaml").write_text(
+        "target:\n  description: 运维资产对象\n", encoding="utf-8"
+    )
+    (tmp_path / "targets.yaml").write_text(
+        "group: target\n"
+        "name: manage\n"
+        "description: 运维资产对象\n"
+        "path: metric/targets\n"
+        "methods:\n"
+        "  list:\n"
+        "    description: 运维资产对象列表\n"
+        "    http: {method: GET}\n"
+        "  create:\n"
+        "    http: {method: POST}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "targettypes.yaml").write_text(
+        "group: target\n"
+        "name: type\n"
+        "description: 运维资产对象类型\n"
+        "path: target/targetTypes\n"
+        "methods:\n"
+        "  list:\n"
+        "    http: {method: GET}\n",
+        encoding="utf-8",
+    )
+
+    tree = build_command_tree(tmp_path)
+    groups = {g["group"]: g for g in tree["groups"]}
+
+    # 仅一个顶层组 target（manage/type 聚合到其下）
+    assert set(groups) == {"target"}
+    target = groups["target"]
+    assert target["desc"] == "运维资产对象"  # 来自 _groups.yaml
+
+    # resources 两级结构：子资源 = 资源 name
+    resources = {r["name"]: r for r in target["resources"]}
+    assert set(resources) == {"manage", "type"}
+    assert resources["manage"]["desc"] == "运维资产对象"
+    assert set(c["name"] for c in resources["manage"]["commands"]) == {"list", "create"}
+    assert set(c["name"] for c in resources["type"]["commands"]) == {"list"}
+
+    # 兼容字段 commands 保留拍平全部命令（按资源出现顺序，同名方法重复出现）
+    assert [c["name"] for c in target["commands"]] == ["list", "create", "list"]
+
+
+def test_command_tree_group_desc_fallback_to_resource(tmp_path):
+    """group 字段存在但 _groups.yaml 无定义：desc 回退到资源 description。"""
+    (tmp_path / "_auth.yaml").write_text(
+        "name: t\nserver:\n  base_url: http://x\n", encoding="utf-8"
+    )
+    (tmp_path / "foo.yaml").write_text(
+        "group: custom\nname: foo\ndescription: Foo 资源\n"
+        "methods:\n  list:\n    http: {method: GET}\n",
+        encoding="utf-8",
+    )
+    tree = build_command_tree(tmp_path)
+    group = next(g for g in tree["groups"] if g["group"] == "custom")
+    assert group["desc"] == "Foo 资源"
+
+
+def test_command_tree_flat_group_keeps_single_resource():
+    """无 group 字段的扁平资源：group = 资源 name，resources 单元素。"""
+    tree = build_command_tree(SPEC_DIR)
+    repos = next(g for g in tree["groups"] if g["group"] == "repos")
+
+    assert repos["desc"] == "Repos"
+    assert len(repos["resources"]) == 1
+    res = repos["resources"][0]
+    assert res["name"] == "repos"
+    assert res["desc"] == "Repos"
+    assert {c["name"] for c in res["commands"]} == {"list", "create"}
+
+
 def test_command_tree_labels_empty_when_missing():
     tree = build_command_tree(SPEC_DIR)
     repos = next(g for g in tree["groups"] if g["group"] == "repos")
