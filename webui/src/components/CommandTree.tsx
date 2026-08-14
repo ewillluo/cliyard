@@ -55,6 +55,12 @@ const treeCss = `
   .cliyard-tree-item[data-active="true"] { background-color: ${brand[50]}; color: ${brand[600]}; font-weight: 500; }
   .cliyard-tree-item[data-active="true"]:hover { background-color: ${brand[50]}; color: ${brand[600]}; }
 
+  .cliyard-group-header {
+    border-radius: ${radius.sm}px;
+    transition: background-color .15s ease;
+  }
+  .cliyard-group-header:hover { background-color: ${neutral[100]}; }
+
   .cliyard-flow-item {
     position: relative; display: flex; flex-direction: column; gap: 2px;
     width: 100%; padding: ${space.sm}px ${space.md}px ${space.sm}px ${space.md + 4}px;
@@ -142,8 +148,55 @@ function EmptyState({ text }: { text: string }) {
 export default function CommandTree({ spec, selected, onSelect }: CommandTreeProps) {
   const [sideTab, setSideTab] = useState<SideTab>("commands");
   const [search, setSearch] = useState("");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    return new Set(spec.groups.map((_, i) => `${spec.groups[i].group}-${i}`));
+  });
 
   const q = search.trim().toLowerCase();
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // 搜索时自动展开所有匹配组
+  const effectiveExpanded = useMemo(() => {
+    if (q === "") return expandedGroups;
+    const all = new Set<string>();
+    spec.groups.forEach((g, i) => {
+      const key = `${g.group}-${i}`;
+      const groupHit =
+        g.group.toLowerCase().includes(q) || g.desc.toLowerCase().includes(q);
+      if (g.resources && g.resources.length > 0) {
+        const resourceHit = g.resources.some(
+          (r) =>
+            r.name.toLowerCase().includes(q) ||
+            r.desc.toLowerCase().includes(q) ||
+            r.commands.some(
+              (c) =>
+                `${r.name}.${c.name}`.toLowerCase().includes(q) ||
+                c.desc.toLowerCase().includes(q),
+            ),
+        );
+        if (groupHit || resourceHit) all.add(key);
+      } else {
+        const commandHit = g.commands.some(
+          (c) =>
+            `${g.group}.${c.name}`.toLowerCase().includes(q) ||
+            c.desc.toLowerCase().includes(q),
+        );
+        if (groupHit || commandHit) all.add(key);
+      }
+    });
+    return all;
+  }, [expandedGroups, q, spec.groups]);
 
   // 命令搜索：group.group/desc + resources 内子资源名/命令名/desc；flow 搜索：name/description/command
   const filteredGroups = useMemo(() => {
@@ -256,7 +309,7 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
         {r.name}
       </span>
       {r.desc && (
-        <span style={{ fontSize: fontSize.xs, color: neutral[400] }}>{r.desc}</span>
+        <span style={{ fontSize: fontSize.xs, color: neutral[600] }}>{r.desc}</span>
       )}
     </div>
   );
@@ -358,51 +411,96 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
           <EmptyState text="无命令" />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: space.lg }}>
-            {filteredGroups.map((g, i) => (
-              <div key={`${g.group}-${i}`}>
-                {/* 分组标题：uppercase 小字灰 + 右侧分组描述 */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: `0 ${space.xs}px`,
-                    marginBottom: space.sm,
-                  }}
-                >
-                  <span
+            {filteredGroups.map((g, i) => {
+              const key = `${g.group}-${i}`;
+              const expanded = effectiveExpanded.has(key);
+              return (
+                <div key={key}>
+                  <button
+                    type="button"
+                    data-testid="group-header"
+                    className="cliyard-group-header"
+                    onClick={() => toggleGroup(key)}
                     style={{
-                      fontSize: fontSize.xs,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.06,
-                      color: neutral[400],
+                      display: "flex",
+                      alignItems: "center",
+                      gap: space.xs,
+                      width: "100%",
+                      padding: `0 ${space.xs}px`,
+                      marginBottom: space.sm,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      textAlign: "left",
                     }}
                   >
-                    {g.group}
-                  </span>
-                  <span style={{ fontSize: fontSize.xs, color: neutral[300] }}>{g.desc}</span>
-                </div>
-                {g.resources && g.resources.length > 0 ? (
-                  /* 两级分组：组内按子资源分小节，命令挂在子资源下 */
-                  <div style={{ display: "flex", flexDirection: "column", gap: space.md }}>
-                    {g.resources.map((r, ri) => (
-                      <div key={`${g.group}-${r.name}-${ri}`}>
-                        {renderResourceHeader(r)}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          {r.commands.map((c) => renderCommandItem(c, r.name))}
-                        </div>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        width: 12,
+                        height: 12,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        transition: "transform .15s ease",
+                        transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+                        color: neutral[500],
+                      }}
+                    >
+                      <svg viewBox="0 0 8 8" width={6} height={6} fill="currentColor">
+                        <path d="M1.5 0L6.5 4L1.5 8z" />
+                      </svg>
+                    </span>
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: fontSize.sm,
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.06,
+                        color: neutral[700],
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {g.group}
+                    </span>
+                    {g.desc && (
+                      <span
+                        style={{
+                          fontSize: fontSize.xs,
+                          color: neutral[500],
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "40%",
+                        }}
+                      >
+                        {g.desc}
+                      </span>
+                    )}
+                  </button>
+                  {expanded &&
+                    (g.resources && g.resources.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: space.md }}>
+                        {g.resources.map((r, ri) => (
+                          <div key={`${g.group}-${r.name}-${ri}`}>
+                            {renderResourceHeader(r)}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              {r.commands.map((c) => renderCommandItem(c, r.name))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        {g.commands.map((c) => renderCommandItem(c, g.group))}
                       </div>
                     ))}
-                  </div>
-                ) : (
-                  /* 扁平组（无 group 字段资源）：组标题下直接挂命令 */
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {g.commands.map((c) => renderCommandItem(c, g.group))}
-                  </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )
       ) : filteredFlows.length === 0 ? (
