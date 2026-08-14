@@ -212,7 +212,7 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
         borderRadius: radius.lg,
         boxShadow: shadow.sm,
         padding: space.lg,
-        overflowY: "auto",
+        overflow: "hidden",
       }}
     >
       <style>{formCss}</style>
@@ -242,7 +242,8 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
             alignItems: "center",
             justifyContent: "center",
             flex: 1,
-            minHeight: 120,
+            minHeight: 0,
+            overflowY: "auto",
             borderRadius: radius.md,
             border: `1px dashed ${neutral[200]}`,
             backgroundColor: neutral[50],
@@ -254,7 +255,7 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
           该流程无需参数
         </div>
       ) : (
-        <div className="cliyard-form" style={{ flex: 1, minHeight: 0 }}>
+        <div className="cliyard-form" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
           <Form
             key={formKey}
             ref={formRef}
@@ -273,6 +274,7 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
         <div
           data-testid="submit-error"
           style={{
+            flexShrink: 0,
             marginTop: space.sm,
             fontSize: fontSize.xs,
             color: statusColors.error.color,
@@ -285,6 +287,7 @@ const CommandForm = forwardRef<CommandFormHandle, CommandFormProps>(function Com
 
       <div
         style={{
+          flexShrink: 0,
           display: "flex",
           gap: space.sm,
           borderTop: `1px solid ${neutral[100]}`,
