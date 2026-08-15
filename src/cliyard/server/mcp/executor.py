@@ -220,7 +220,7 @@ class MCPExecutor:
     # 低层 MCP Server 构造
     # ------------------------------------------------------------------
 
-    def to_mcp_server(self, name: str | None = None, version: str = "0.11.1") -> MCPServer:
+    def to_mcp_server(self, name: str | None = None, version: str = "0.12.0") -> MCPServer:
         """构建绑定本 executor 的低层 MCP Server。
 
         Args:
