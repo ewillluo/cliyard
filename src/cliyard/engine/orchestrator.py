@@ -58,6 +58,7 @@ class FlowContext:
     server_override: str = ""
     saved_endpoints: dict = field(default_factory=dict)
     pre_filled_auth: dict | None = None
+    step_cb: Callable[[str, dict], None] | None = None
     _flow_aborted: bool = False
     _flow_skipped: bool = False
     _current_flow: Any = None
@@ -380,7 +381,7 @@ def evaluate_condition(condition_str: str, context: dict) -> bool:
     return bool(rendered)
 
 
-def execute_echo_action(message: str, context: FlowContext) -> None:
+def execute_echo_action(message: str, context: FlowContext, color: str = "green") -> None:
     """Print a formatted message via the flow console.
 
     Supports ``{{ flow.xxx }}`` and ``{{ step.xxx }}`` template resolution
@@ -389,10 +390,11 @@ def execute_echo_action(message: str, context: FlowContext) -> None:
     Args:
         message: Message to print (with optional Jinja2 templates).
         context: Current flow execution context.
+        color: Rich markup color name (default: "green").
     """
     template_ctx = _build_template_context(context)
     rendered = resolve_template(message, template_ctx)
-    context.console.print(f"[green]{rendered}[/green]")
+    context.console.print(f"[{color}]{rendered}[/{color}]")
 
 
 def execute_action(
@@ -488,6 +490,20 @@ def _normalize_on_result_block(
     return []
 
 
+def _emit_step(
+    step_cb: Callable[[str, dict], None] | None,
+    name: str,
+    payload: dict[str, Any],
+) -> None:
+    """Invoke *step_cb* with ``(name, payload)``; swallow callback errors."""
+    if step_cb is None:
+        return
+    try:
+        step_cb(name, payload)
+    except Exception:
+        pass
+
+
 def _execute_action_item(
     item: dict,
     context: FlowContext,
@@ -507,7 +523,8 @@ def _execute_action_item(
     # Echo action
     if item.get("type") == "echo":
         message = item.get("message", "")
-        execute_echo_action(message, context)
+        color = item.get("color", "green")
+        execute_echo_action(message, context, color)
         return
 
     # Control action
@@ -540,6 +557,12 @@ def _execute_action_item(
         try:
             result, _ = _execute_step(sub_step, context)
             context.step_state[step_id] = result
+            _emit_step(context.step_cb, "step_done", {
+                "step_id": step_id,
+                "label": item.get("description", step_id),
+                "status": "ok",
+                "result": result,
+            })
             if getattr(context, "verbose", False) or sub_step.show_response:
                 _show_sub_step_details(
                     sub_step,
@@ -708,7 +731,10 @@ def _execute_for_each(step, context: FlowContext) -> list:
                 message = sub_resolved.get("message", "") if isinstance(
                     sub_resolved, dict
                 ) else ""
-                execute_echo_action(message, iter_ctx)
+                color = sub_resolved.get("color", "green") if isinstance(
+                    sub_resolved, dict
+                ) else "green"
+                execute_echo_action(message, iter_ctx, color)
                 sub_result = message
             else:
                 sub_result = sub_resolved
@@ -1300,6 +1326,7 @@ def run_flow(
         server_override=server_override or "",
         saved_endpoints=saved_endpoints,
         pre_filled_auth=service_ctx.pre_filled_auth,
+        step_cb=step_cb,
         _current_flow=flow_spec,
         verbose=verbose,
     )
