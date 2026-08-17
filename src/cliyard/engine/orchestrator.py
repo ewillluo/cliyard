@@ -1516,15 +1516,4 @@ def _step_result_preview(result: Any, limit: int | None = None) -> str:
     return text if limit is None else text[:limit]
 
 
-def _emit_step(
-    step_cb: Callable[[str, dict], None] | None,
-    name: str,
-    payload: dict[str, Any],
-) -> None:
-    """Invoke *step_cb* with ``(name, payload)``; swallow callback errors."""
-    if step_cb is None:
-        return
-    try:
-        step_cb(name, payload)
-    except Exception:
-        pass
+
