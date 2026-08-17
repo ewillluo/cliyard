@@ -17,9 +17,12 @@ Pipeline per step (matching :func:`~cliyard.engine.builder._make_callback`):
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from jinja2 import ChainableUndefined
 from jinja2.sandbox import SandboxedEnvironment
@@ -495,13 +498,13 @@ def _emit_step(
     name: str,
     payload: dict[str, Any],
 ) -> None:
-    """Invoke *step_cb* with ``(name, payload)``; swallow callback errors."""
+    """Invoke *step_cb* with ``(name, payload)``; log callback errors."""
     if step_cb is None:
         return
     try:
         step_cb(name, payload)
     except Exception:
-        pass
+        logger.warning("step_cb callback failed for event %s", name, exc_info=True)
 
 
 def _execute_action_item(
