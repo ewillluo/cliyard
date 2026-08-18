@@ -34,11 +34,10 @@ dependencies = [
 ]
 
 # mcp 原先作为 optional-dependency 引入（cliyard[mcp]），但
-# create_cli() 无条件导入 build_mcp_command -> server/mcp/*，
+# create_cli() 无条件导入 build_mcp_command → server/mcp/*，
 # 可选依赖仍会导致下游 CLI 启动时 ModuleNotFoundError，
 # 故提升为 required dependency。
 [project.optional-dependencies]
-# Kept for backward compatibility — `pip install cliyard[mcp]` still works
 mcp = ["mcp~=2.0.0"]
 
 [project.urls]
