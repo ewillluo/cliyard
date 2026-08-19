@@ -623,6 +623,7 @@ def _execute_action_item(
                 "use": sub_step.use or "",
                 "elapsed_ms": 0,
                 "result_preview": _step_result_preview(result),
+                "params_preview": _step_result_preview(resolved) if resolved else "",
             })
             if getattr(context, "verbose", False) or sub_step.show_response:
                 _show_sub_step_details(
@@ -935,10 +936,22 @@ def _execute_until(
 
 
 def _make_plugin_console(console, step_cb):
-    """Wrap rich Console so .print() also emits step_echo events."""
-    import types as _types
+    """Wrap rich Console so .print() also emits step_echo events.
 
-    _original_print = console.print
+    Creates a NEW Console with the same settings — does NOT mutate
+    the original, so it never produces duplicate step_echo events
+    from other code paths that already emit them explicitly.
+    """
+    import types as _types
+    from rich.console import Console as _RichConsole
+
+    # Build a fresh Console mirroring the original's key settings
+    _plugin_console = _RichConsole(
+        soft_wrap=getattr(console, "soft_wrap", True),
+        force_terminal=getattr(console, "force_terminal", None),
+        color_system=getattr(console, "color_system", None),
+    )
+    _original_print = _plugin_console.print
 
     def _wrapped_print(self, *args, **kwargs):
         _original_print(*args, **kwargs)
@@ -947,8 +960,8 @@ def _make_plugin_console(console, step_cb):
             if text.strip():
                 _emit_step(step_cb, "step_echo", {"message": text.strip(), "color": kwargs.get("style", "default")})
 
-    console.print = _types.MethodType(_wrapped_print, console)
-    return console
+    _plugin_console.print = _types.MethodType(_wrapped_print, _plugin_console)
+    return _plugin_console
 
 
 def _execute_plugin_step(step, context: FlowContext) -> dict:
@@ -1366,7 +1379,7 @@ def run_flow(
     from cliyard.client.auth import run_auth_chain
     from cliyard.client.http import HttpClient
 
-    console = Console(soft_wrap=True)
+    console = Console(soft_wrap=True, force_terminal=False, no_color=True)
 
     # Create shared HTTP client
     _base = server_override or service_ctx.base_url
@@ -1428,14 +1441,17 @@ def run_flow(
         # --- on_step_start hooks ---
         _trigger_step_hooks("on_step_start", step, context)
 
-        _emit_step(
-            step_cb,
-            "step_start",
-            {"index": step_index, "id": step.id, "label": label, "use": step.use},
-        )
-
         try:
             result, resolved_params = _execute_step(step, context)
+
+            # Emit step_start AFTER _execute_step so that pipeline events
+            # (validate/auth/request/response/format from execute_use_step)
+            # appear BEFORE the merged step card in the frontend timeline.
+            _emit_step(
+                step_cb,
+                "step_start",
+                {"index": step_index, "id": step.id, "label": label, "use": step.use},
+            )
 
             # Store result in step_state for subsequent steps
             context.step_state[step.id] = result
@@ -1507,6 +1523,7 @@ def run_flow(
                     "id": step.id,
                     "label": label,
                     "status": "fail",
+                    "use": step.use or "",
                     "elapsed_ms": int((time.perf_counter() - _start) * 1000),
                     "result_preview": "",
                 },
@@ -1533,6 +1550,7 @@ def run_flow(
                     "id": step.id,
                     "label": label,
                     "status": "fail",
+                    "use": step.use or "",
                     "elapsed_ms": int((time.perf_counter() - _start) * 1000),
                     "result_preview": "",
                 },
