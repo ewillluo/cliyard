@@ -80,7 +80,7 @@ describe("AuthPanel", () => {
     await waitFor(() => {
       expect(loginMock).toHaveBeenCalledWith({
         username: "operator", password: "op_pass", endpoint: "https://api.staging.example.com",
-        endpoints: { svc: "https://api.staging.example.com" },
+        endpoints: { svc: "https://api.staging.example.com" }, env_name: "staging",
       });
     });
     expect(getMock).toHaveBeenCalledTimes(2);
