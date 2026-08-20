@@ -122,7 +122,10 @@ def _run_auth_chain_safe(
     ``run_auth_chain`` reads ``KETA_USER`` / ``KETA_PASS`` from
     ``os.environ`` via its ``env`` steps.  Because ``os.environ`` is
     process-global mutable state, **both** the reads and writes are
-    serialised under ``_auth_lock``.
+    serialised under ``_auth_lock``.  The same lock also protects
+    ``save_profile`` / ``delete_profile`` calls in login, refresh
+    and delete endpoints to prevent concurrent read-modify-write
+    corruption of ``credentials.yaml``.
     """
     auth_params = auth_spec.get("params", {})
     env_user_key = auth_params.get("username", "KETA_USER")
@@ -246,7 +249,8 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
     if body.endpoints:
         fields["endpoints"] = body.endpoints
 
-    cred.save_profile(profile_name, fields, set_current=True, service=svc)
+    with _auth_lock:
+        cred.save_profile(profile_name, fields, set_current=True, service=svc)
     return {"profile": profile_name, "expires_at": persist_fields.get("expires_at")}
 
 
@@ -317,7 +321,8 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
     if not profile.get("auth_username"):
         updates["auth_username"] = username
 
-    cred.save_profile(body.profile, updates, service=svc)
+    with _auth_lock:
+        cred.save_profile(body.profile, updates, service=svc)
     return {"profile": body.profile, "expires_at": persist_fields.get("expires_at")}
 
 
@@ -332,7 +337,8 @@ async def delete_auth_profile(profile: str, request: Request) -> dict:
     profiles = cred.list_profiles(service=svc)
     if profile not in profiles:
         raise HTTPException(status_code=404, detail=f"Profile '{profile}' not found")
-    cred.delete_profile(profile, service=svc)
+    with _auth_lock:
+        cred.delete_profile(profile, service=svc)
     return {"deleted": profile}
 
 
