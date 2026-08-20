@@ -118,6 +118,8 @@ export default function AuthPanel({ open, onClose }: AuthPanelProps) {
       if (msg.includes("PASSWORD_REQUIRED")) {
         const profile = profiles.find((p) => p.name === name);
         setRefreshPwDialog({ profile: name, username: profile?.auth_username ?? "" });
+      } else if (msg.includes("PROFILE_MISSING_USERNAME")) {
+        setError(`profile "${name}" 缺少用户名，请重新登录`);
       } else {
         setError(msg);
       }

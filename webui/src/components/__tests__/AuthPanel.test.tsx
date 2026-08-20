@@ -147,6 +147,17 @@ describe("AuthPanel", () => {
     });
   });
 
+  it("profile 缺少用户名时显示提示信息", async () => {
+    refreshMock.mockRejectedValue(new Error("400 PROFILE_MISSING_USERNAME"));
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByTestId("refresh-profile")).toHaveLength(2));
+
+    fireEvent.click(screen.getAllByTestId("refresh-profile")[0]);
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-error")).toHaveTextContent("请重新登录");
+    });
+  });
+
   it("删除调 deleteAuth", async () => {
     window.confirm = vi.fn().mockReturnValue(true);
     deleteMock.mockResolvedValue({ deleted: "prod-admin" });
