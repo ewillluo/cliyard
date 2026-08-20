@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from cliyard.client import credentials as cred
 from cliyard.client.auth import run_auth_chain
 from cliyard.client.http import HttpClient
+from cliyard.engine.errors import AuthError
 
 logger = logging.getLogger("cliyard.server.auth")
 
@@ -214,9 +215,9 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
 
     try:
         auth_state = _run_auth_chain_safe(auth_spec, body.endpoint, body.username, body.password)
-    except ValueError:
-        logger.exception("Login failed (ValueError) for user=%s endpoint=%s", body.username, body.endpoint)
-        raise HTTPException(status_code=401, detail="Login failed: missing or invalid credentials")
+    except AuthError:
+        logger.warning("Login failed for user=%s endpoint=%s", body.username, body.endpoint)
+        raise HTTPException(status_code=401, detail="Login failed: invalid credentials")
     except Exception:
         logger.exception("Login failed for user=%s endpoint=%s", body.username, body.endpoint)
         raise HTTPException(status_code=502, detail="Login failed: server error (check logs)")
@@ -275,7 +276,8 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="No auth config in spec")
 
     svc = auth_spec.get("id", service.get("name", "default"))
-    profile = cred.get_profile(body.profile, service=svc)
+    profiles = cred.list_profiles(service=svc)
+    profile = profiles.get(body.profile)
     if not profile:
         raise HTTPException(status_code=404, detail=f"Profile '{body.profile}' not found")
 
@@ -301,8 +303,8 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
 
     try:
         auth_state = _run_auth_chain_safe(auth_spec, auth_url, username, password)
-    except ValueError:
-        logger.exception("Refresh failed (ValueError) for profile=%s", body.profile)
+    except AuthError:
+        logger.warning("Refresh failed for profile=%s", body.profile)
         raise HTTPException(status_code=401, detail="Refresh failed: invalid credentials")
     except Exception:
         logger.exception("Refresh failed for profile=%s", body.profile)
