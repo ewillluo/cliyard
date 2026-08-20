@@ -41,6 +41,14 @@ function flowParamCount(flow: Flow): number {
   return props && typeof props === "object" ? Object.keys(props).length : 0;
 }
 
+/** category 英文标识 → 中文显示名 */
+const categoryLabels: Record<string, string> = {
+  "supplier-introduce": "供应商引入",
+  "eco-inquiry": "生态询价",
+  "csp-data": "CSP 数据",
+  "fmp": "FMP 同步",
+};
+
 /** 树项/flow 项的 hover 与选中样式（token 值注入，前缀 cliyard- 避免污染） */
 const treeCss = `
   .cliyard-tree-item {
@@ -151,6 +159,10 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
     return new Set(spec.groups.map((_, i) => `${spec.groups[i].group}-${i}`));
   });
+  // flow 组默认折叠
+  const [expandedFlowGroups, setExpandedFlowGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const q = search.trim().toLowerCase();
 
@@ -232,9 +244,42 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
         (g) => (g.resources && g.resources.length > 0) || g.commands.length > 0,
       );
   }, [spec.groups, q]);
-  const filteredFlows = spec.flows.filter((f) =>
-    [f.name, f.description, f.command].some((s) => s.toLowerCase().includes(q)),
+  // flow 搜索：name/description/command + category 英文名/中文名
+  const filteredFlows = useMemo(
+    () =>
+      spec.flows.filter((f) => {
+        const cat = f.category || "";
+        const catZh = categoryLabels[cat] || "";
+        return (
+          f.name.toLowerCase().includes(q) ||
+          f.description.toLowerCase().includes(q) ||
+          f.command.toLowerCase().includes(q) ||
+          cat.toLowerCase().includes(q) ||
+          catZh.toLowerCase().includes(q)
+        );
+      }),
+    [spec.flows, q],
   );
+
+  /** 按 category 分组的 flows：[[category, flows], ...]；未设置 category 归入"其他" */
+  const groupedFlows = useMemo(() => {
+    const groups: Record<string, Flow[]> = {};
+    for (const f of filteredFlows) {
+      const cat = f.category || "其他";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(f);
+    }
+    return Object.entries(groups);
+  }, [filteredFlows]);
+
+  // 搜索时自动展开所有匹配到的 flow 组；无搜索词时尊重用户折叠状态
+  const searchActive = q !== "";
+  const effectiveExpandedFlowGroups = useMemo(() => {
+    if (!searchActive) return expandedFlowGroups;
+    const all = new Set<string>();
+    for (const [cat] of groupedFlows) all.add(cat);
+    return all;
+  }, [expandedFlowGroups, groupedFlows, searchActive]);
 
   /** 命令项按钮（target = 资源名.方法名，与 executor 的 resource.method 语义一致） */
   const renderCommandItem = (c: TreeItem, targetPrefix: string) => {
@@ -503,87 +548,168 @@ export default function CommandTree({ spec, selected, onSelect }: CommandTreePro
             })}
           </div>
         )
-      ) : filteredFlows.length === 0 ? (
+      ) : groupedFlows.length === 0 ? (
         <EmptyState text="无 flow" />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {filteredFlows.map((f) => {
-            const on = selected?.kind === "flow" && selected.target === f.command;
-            const paramCount = flowParamCount(f);
+        <div style={{ display: "flex", flexDirection: "column", gap: space.lg }}>
+          {groupedFlows.map(([cat, flows]) => {
+            const catLabel = categoryLabels[cat] || cat;
+            const expanded = effectiveExpandedFlowGroups.has(cat);
             return (
-              <button
-                key={f.name}
-                type="button"
-                data-testid="flow-item"
-                data-active={on ? "true" : "false"}
-                onClick={() => onSelect({ kind: "flow", target: f.command })}
-                className="cliyard-flow-item"
-              >
-                {on && <ActiveBar top={14} />}
-                {/* 名称行：mono 名称 + flow pill + 参数数 + 命令（右对齐） */}
-                <span style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+              <div key={cat}>
+                {/* 分组头 - 沿用命令组头的折叠样式 */}
+                <button
+                  type="button"
+                  data-testid="flow-group-header"
+                  className="cliyard-group-header"
+                  onClick={() => {
+                    setExpandedFlowGroups((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(cat)) next.delete(cat);
+                      else next.add(cat);
+                      return next;
+                    });
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: space.xs,
+                    width: "100%",
+                    padding: `0 ${space.xs}px`,
+                    marginBottom: space.sm,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
                   <span
-                    className="cliyard-flow-name"
                     style={{
-                      fontFamily: fontFamily.mono,
+                      display: "inline-flex",
+                      width: 12,
+                      height: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      transition: "transform .15s ease",
+                      transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+                      color: neutral[500],
+                    }}
+                  >
+                    <svg viewBox="0 0 8 8" width={6} height={6} fill="currentColor">
+                      <path d="M1.5 0L6.5 4L1.5 8z" />
+                    </svg>
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
                       fontSize: fontSize.sm,
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.06,
+                      color: neutral[700],
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {f.command}
+                    {catLabel}
                   </span>
                   <span
                     style={{
                       flexShrink: 0,
-                      borderRadius: radius.pill,
-                      padding: "0 6px",
-                      backgroundColor: brand[50],
-                      border: `1px solid ${brand[200]}`,
-                      color: brand[600],
-                      fontSize: 9,
-                      fontWeight: 600,
-                      lineHeight: "14px",
-                      whiteSpace: "nowrap",
+                      fontSize: fontSize.xs,
+                      color: neutral[400],
+                      fontWeight: 400,
                     }}
                   >
-                    flow
+                    {flows.length}
                   </span>
-                  {paramCount > 0 && (
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        borderRadius: radius.pill,
-                        padding: "0 6px",
-                        backgroundColor: neutral[100],
-                        border: `1px solid ${neutral[200]}`,
-                        color: neutral[500],
-                        fontSize: 9,
-                        fontWeight: 600,
-                        lineHeight: "14px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {paramCount} 参数
-                    </span>
-                  )}
-                </span>
-                {/* 描述行：两行内省略 */}
-                <span
-                  style={{
-                    fontSize: fontSize.xs,
-                    color: neutral[500],
-                    lineHeight: 1.5,
-                    overflow: "hidden",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                  }}
-                >
-                  {f.description}
-                </span>
-              </button>
+                </button>
+                {expanded && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {flows.map((f) => {
+                      const on = selected?.kind === "flow" && selected.target === f.command;
+                      const paramCount = flowParamCount(f);
+                      return (
+                        <button
+                          key={f.name}
+                          type="button"
+                          data-testid="flow-item"
+                          data-active={on ? "true" : "false"}
+                          onClick={() => onSelect({ kind: "flow", target: f.command })}
+                          className="cliyard-flow-item"
+                        >
+                          {on && <ActiveBar top={14} />}
+                          {/* 名称行：mono 名称 + flow pill + 参数数 */}
+                          <span style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+                            <span
+                              className="cliyard-flow-name"
+                              style={{
+                                fontFamily: fontFamily.mono,
+                                fontSize: fontSize.sm,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {f.command}
+                            </span>
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                borderRadius: radius.pill,
+                                padding: "0 6px",
+                                backgroundColor: brand[50],
+                                border: `1px solid ${brand[200]}`,
+                                color: brand[600],
+                                fontSize: 9,
+                                fontWeight: 600,
+                                lineHeight: "14px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              flow
+                            </span>
+                            {paramCount > 0 && (
+                              <span
+                                style={{
+                                  flexShrink: 0,
+                                  borderRadius: radius.pill,
+                                  padding: "0 6px",
+                                  backgroundColor: neutral[100],
+                                  border: `1px solid ${neutral[200]}`,
+                                  color: neutral[500],
+                                  fontSize: 9,
+                                  fontWeight: 600,
+                                  lineHeight: "14px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {paramCount} 参数
+                              </span>
+                            )}
+                          </span>
+                          {/* 描述行：两行内省略 */}
+                          <span
+                            style={{
+                              fontSize: fontSize.xs,
+                              color: neutral[500],
+                              lineHeight: 1.5,
+                              overflow: "hidden",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                            }}
+                          >
+                            {f.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

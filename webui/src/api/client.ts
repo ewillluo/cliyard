@@ -40,6 +40,8 @@ export interface Flow {
   name: string;
   description: string;
   command: string;
+  category: string;
+  labels: string[];
   params_schema: Record<string, unknown>;
   step_count: number;
 }
