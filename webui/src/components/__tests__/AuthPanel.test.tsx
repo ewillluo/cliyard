@@ -21,17 +21,17 @@ const deleteMock = vi.mocked(deleteAuth);
 const envMock = vi.mocked(fetchEnvironments);
 
 const profiles: ProfileList = {
-  current: { name: "test3-03181", endpoint: "https://crm-api-test3.ehsy.com", token_masked: "\u2022\u2022\u2022\u2022abcd", expires_at: 4939556089 },
+  current: { name: "staging-admin", endpoint: "https://api.staging.example.com", token_masked: "\u2022\u2022\u2022\u2022abcd", expires_at: 4939556089 },
   profiles: [
-    { name: "test3-03181", endpoint: "https://crm-api-test3.ehsy.com", token_masked: "\u2022\u2022\u2022\u2022abcd", expires_at: 4939556089 },
-    { name: "test6-03181", endpoint: "https://crm-api-test6.ehsy.com", token_masked: "\u2022\u2022\u2022\u2022efgh", expires_at: 4938857803 },
+    { name: "staging-admin", endpoint: "https://api.staging.example.com", token_masked: "\u2022\u2022\u2022\u2022abcd", expires_at: 4939556089 },
+    { name: "prod-admin", endpoint: "https://api.prod.example.com", token_masked: "\u2022\u2022\u2022\u2022efgh", expires_at: 4938857803 },
   ],
 };
 
 const envPresets = {
   environments: [
-    { name: "test3", endpoint: "https://crm-api-test3.ehsy.com", endpoints: { go: "https://crm-api-test3.ehsy.com", java: "https://crm-api-java-test3.ehsy.com" }, default_username: "03181", default_password: "123456" },
-    { name: "test6", endpoint: "https://crm-api-test6.ehsy.com", endpoints: { go: "https://crm-api-test6.ehsy.com", java: "https://crm-api-java-test6.ehsy.com" }, default_username: "03181", default_password: "123456" },
+    { name: "staging", endpoint: "https://api.staging.example.com", endpoints: { svc: "https://api.staging.example.com" }, default_username: "admin", default_password: "adminpass" },
+    { name: "prod", endpoint: "https://api.prod.example.com", endpoints: { svc: "https://api.prod.example.com" }, default_username: "admin", default_password: "adminpass" },
   ],
 };
 
@@ -63,24 +63,24 @@ describe("AuthPanel", () => {
   it("登录表单默认填充第一个环境的账号密码", async () => {
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByTestId("login-username")).toHaveValue("03181");
-      expect(screen.getByTestId("login-password")).toHaveValue("123456");
+      expect(screen.getByTestId("login-username")).toHaveValue("admin");
+      expect(screen.getByTestId("login-password")).toHaveValue("adminpass");
     });
   });
 
   it("点击登录按钮调 loginAuth 并刷新列表", async () => {
-    loginMock.mockResolvedValue({ profile: "test3-03181", expires_at: 4939556089 });
+    loginMock.mockResolvedValue({ profile: "staging-admin", expires_at: 4939556089 });
     renderPanel();
     await waitFor(() => expect(screen.getByTestId("login-button")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByTestId("login-username"), { target: { value: "09876" } });
-    fireEvent.change(screen.getByTestId("login-password"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByTestId("login-username"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByTestId("login-password"), { target: { value: "op_pass" } });
     fireEvent.click(screen.getByTestId("login-button"));
 
     await waitFor(() => {
       expect(loginMock).toHaveBeenCalledWith({
-        username: "09876", password: "654321", endpoint: "https://crm-api-test3.ehsy.com",
-        endpoints: { go: "https://crm-api-test3.ehsy.com", java: "https://crm-api-java-test3.ehsy.com" },
+        username: "operator", password: "op_pass", endpoint: "https://api.staging.example.com",
+        endpoints: { svc: "https://api.staging.example.com" },
       });
     });
     expect(getMock).toHaveBeenCalledTimes(2);
@@ -88,10 +88,10 @@ describe("AuthPanel", () => {
 
   it("环境按钮可切换，切换后更新账号密码默认值", async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByText("test6")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("test6"));
+    await waitFor(() => expect(screen.getByText("prod")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("prod"));
     await waitFor(() => {
-      expect(screen.getByTestId("login-username")).toHaveValue("03181");
+      expect(screen.getByTestId("login-username")).toHaveValue("admin");
     });
   });
 
@@ -122,17 +122,17 @@ describe("AuthPanel", () => {
   });
 
   it("切换 profile 调 switchProfile 并刷新列表", async () => {
-    switchMock.mockResolvedValue({ current: "test6-03181" });
+    switchMock.mockResolvedValue({ current: "prod-admin" });
     renderPanel();
     await waitFor(() => expect(screen.getAllByTestId("profile-row")).toHaveLength(2));
     fireEvent.click(screen.getAllByTestId("switch-profile")[0]);
-    await waitFor(() => expect(switchMock).toHaveBeenCalledWith("test6-03181"));
+    await waitFor(() => expect(switchMock).toHaveBeenCalledWith("prod-admin"));
     expect(getMock).toHaveBeenCalledTimes(2);
   });
 
   it("续签先无密码尝试，失败后弹出密码对话框", async () => {
     refreshMock.mockRejectedValueOnce(new Error("400 PASSWORD_REQUIRED"));
-    refreshMock.mockResolvedValueOnce({ profile: "test3-03181", expires_at: 4939556089 });
+    refreshMock.mockResolvedValueOnce({ profile: "staging-admin", expires_at: 4939556089 });
     renderPanel();
     await waitFor(() => expect(screen.getAllByTestId("refresh-profile")).toHaveLength(2));
 
@@ -143,17 +143,17 @@ describe("AuthPanel", () => {
     fireEvent.click(screen.getByTestId("refresh-confirm-button"));
 
     await waitFor(() => {
-      expect(refreshMock).toHaveBeenCalledWith("test3-03181", "mypassword");
+      expect(refreshMock).toHaveBeenCalledWith("staging-admin", "mypassword");
     });
   });
 
   it("删除调 deleteAuth", async () => {
     window.confirm = vi.fn().mockReturnValue(true);
-    deleteMock.mockResolvedValue({ deleted: "test6-03181" });
+    deleteMock.mockResolvedValue({ deleted: "prod-admin" });
     renderPanel();
     await waitFor(() => expect(screen.getAllByTestId("delete-profile")).toHaveLength(2));
     fireEvent.click(screen.getAllByTestId("delete-profile")[1]);
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("test6-03181"));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("prod-admin"));
   });
 
   it("已过期的 profile 显示 [已过期]", async () => {
