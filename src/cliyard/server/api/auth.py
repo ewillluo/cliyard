@@ -37,9 +37,6 @@ _switch_lock = threading.Lock()
 _auth_lock = threading.Lock()
 _MASK = "\u2022\u2022\u2022\u2022"  # ••••
 
-# Margin (seconds) applied when comparing expires_at so a token that is
-# about to expire in a few seconds is not treated as still valid.
-_EXPIRY_MARGIN_S = 300  # 5 minutes
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,7 +44,6 @@ _EXPIRY_MARGIN_S = 300  # 5 minutes
 
 
 def _mask_token(token: str) -> str:
-    """Mask a token as ``••••`` + last 4 chars (short tokens fully masked)."""
     if not token:
         return token
     if len(token) <= 4:
@@ -55,35 +51,15 @@ def _mask_token(token: str) -> str:
     return _MASK + token[-4:]
 
 
-def _normalize_expires_at(raw: Any) -> int | None:
-    """Normalize *expires_at* to an int (Unix seconds), or *None*.
-
-    Credentials may store ``expires_at`` as seconds or milliseconds.
-    This heuristic treats any value >= 1e11 as milliseconds and
-    divides it by 1000 so the result is always Unix seconds.
-    """
-    if raw is None:
-        return None
-    try:
-        val = int(raw)
-    except (ValueError, TypeError):
-        return None
-    # Timestamps >= 1e11 are in the millisecond range (year 5138+ for
-    # seconds, year 1970+ for milliseconds).  Divide down to seconds.
-    if val >= 100_000_000_000:  # 1e11
-        val //= 1000
-    return val
-
-
 def _profile_view(name: str, fields: dict) -> dict:
-    """Build the public view of a profile — never includes the raw token."""
     view: dict = {
         "name": name,
         "endpoint": fields.get("endpoint", ""),
         "token_masked": _mask_token(str(fields.get("token", ""))),
     }
+    # expires_at is already normalised to seconds by save_profile()
     if "expires_at" in fields:
-        view["expires_at"] = _normalize_expires_at(fields["expires_at"])
+        view["expires_at"] = fields["expires_at"]
     if "auth_username" in fields:
         view["auth_username"] = fields["auth_username"]
     return view
@@ -92,77 +68,46 @@ def _profile_view(name: str, fields: dict) -> dict:
 def _service_id(request: Request) -> str:
     """Resolve the credentials namespace for the served spec."""
     service = request.app.state.service
-    service_name: str = service.get("name", "cliyard")
     auth_spec = service.get("auth")
-    return auth_spec.get("id", service_name) if auth_spec else service_name
+    return auth_spec.get("id", service.get("name", "default")) if auth_spec else "default"
 
 
 def _persist_fields(auth_spec: dict) -> dict[str, str]:
-    """Return a mapping ``{storage_key → "step.field"}`` from ``auth.persist.fields``.
-
-    E.g. from::
-
-        persist:
-          fields:
-            token:
-              from: get_token.token
-
-    This returns ``{"token": "get_token.token"}``.
-    """
+    """Return ``{storage_key → "step.field"}`` from ``auth.persist.fields``."""
     persist = auth_spec.get("persist", {})
     raw = persist.get("fields", {})
     return {k: v.get("from", "") for k, v in raw.items() if isinstance(v, dict)}
 
 
-def _extract_auth_result(
+def _resolve_step_value(auth_state: dict[str, Any], ref: str) -> Any:
+    """Resolve a ``"step.field"`` or ``"step"`` reference in *auth_state*."""
+    if "." in ref:
+        step, field = ref.split(".", 1)
+        step_val = auth_state.get(step)
+        if isinstance(step_val, dict):
+            return step_val.get(field)
+        return None
+    return auth_state.get(ref)
+
+
+def _extract_all_persist_fields(
     auth_state: dict[str, Any],
     auth_spec: dict | None,
-) -> tuple[str | None, int | None]:
-    """Extract *(token, expires_at)* from *auth_state*.
+) -> dict[str, Any]:
+    """Extract ALL fields from *auth_state* following ``auth.persist.fields``.
 
-    Resolution order (same as CLI's ``runner.py``):
-      1. Follow ``auth.persist.fields`` — the same declarative mapping the
-         CLI uses.  This keeps the API consistent regardless of step names
-         (``crm_login``, ``token``, ``get_token``, etc.).
-      2. Fallback: scan every step result for a ``dict`` containing a ``token``
-         key and pick the first hit.
-      3. Last resort: treat any plain-string step value as the token.
+    This mirrors the CLI's behaviour in ``runner.py`` — every field declared
+    in the ``persist.fields`` mapping is resolved from the auth chain result,
+    so the API and CLI produce identical profiles.
     """
-    if auth_spec:
-        pfields = _persist_fields(auth_spec)
-        for storage_key, ref in pfields.items():
-            if storage_key != "token":
-                continue
-            if "." in ref:
-                step, field = ref.split(".", 1)
-                step_val = auth_state.get(step)
-                if isinstance(step_val, dict):
-                    token_val = step_val.get(field)
-                    expires_at = _normalize_expires_at(step_val.get("expires_at"))
-                    if token_val:
-                        return str(token_val), expires_at
-            else:
-                val = auth_state.get(ref)
-                if val:
-                    if isinstance(val, dict):
-                        token_val = val.get("token")
-                        if token_val:
-                            return str(token_val), _normalize_expires_at(val.get("expires_at"))
-                    return str(val), None
-
-    # Fallback: scan all steps for the first dict that has a "token" key
-    for step_name, step_val in auth_state.items():
-        if isinstance(step_val, dict) and "token" in step_val:
-            token_val = step_val["token"]
-            expires_at = _normalize_expires_at(step_val.get("expires_at"))
-            return str(token_val), expires_at
-
-    # Last resort: any plain-string step result
-    for step_val in auth_state.values():
-        if isinstance(step_val, str) and step_val:
-            return step_val, None
-
-    return None, None
+    if not auth_spec:
+        return {}
+    result: dict[str, Any] = {}
+    for storage_key, ref in _persist_fields(auth_spec).items():
+        value = _resolve_step_value(auth_state, ref)
+        if value is not None:
+            result[storage_key] = value
+    return result
 
 
 def _run_auth_chain_safe(
@@ -183,7 +128,6 @@ def _run_auth_chain_safe(
     env_pass_key = auth_params.get("password", "KETA_PASS")
 
     with _auth_lock:
-        # Capture reads and writes inside the same lock
         old_user = os.environ.get(env_user_key)
         old_pass = os.environ.get(env_pass_key)
         try:
@@ -230,7 +174,6 @@ class SwitchBody(BaseModel):
 
 @router.post("/auth/switch")
 async def switch_profile(body: SwitchBody, request: Request) -> dict:
-    """Switch the current profile of the served spec's service."""
     sid = _service_id(request)
     with _switch_lock:
         ok = cred.switch_profile(body.profile, service=sid)
@@ -248,8 +191,8 @@ class LoginRequest(BaseModel):
     username: str = Field(default="", description="Login username")
     password: str = Field(default="", description="Login password")
     endpoint: str = Field(..., description="Full endpoint URL for authentication")
-    endpoints: dict[str, str] = Field(default_factory=dict, description="Per-server endpoint mapping, e.g. {\"go\": \"...\", \"java\": \"...\"}")
-    env_name: str = Field(default="", description="Environment name for profile naming (e.g. 'test3'); falls back to endpoint if empty")
+    endpoints: dict[str, str] = Field(default_factory=dict, description="Per-server endpoint mapping, e.g. {\"svc1\": \"...\", \"svc2\": \"...\"}")
+    env_name: str = Field(default="", description="Environment name for profile naming (e.g. 'staging'); falls back to endpoint if empty")
     profile_name: str = Field(default="", description="Profile name to save under; auto-generated if empty")
 
 
@@ -258,10 +201,9 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
     """
     Authenticate against the given endpoint and save the result as a profile.
 
-    Token and expires_at are extracted from the auth chain result by
-    following the same ``auth.persist.fields`` mapping that the CLI uses
-    (see :func:`_extract_auth_result`), making this endpoint step-name
-    agnostic — no hardcoded step name.
+    All fields declared in ``auth.persist.fields`` are extracted from the
+    auth chain result (same as the CLI), so the API and CLI produce
+    identical profiles — no hardcoded step names.
     """
     service = request.app.state.service
     auth_spec = service.get("auth")
@@ -279,11 +221,10 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
         logger.exception("Login failed for user=%s endpoint=%s", body.username, body.endpoint)
         raise HTTPException(status_code=502, detail="Login failed: server error (check logs)")
 
-    token_val, expires_at = _extract_auth_result(auth_state, auth_spec)
-    if not token_val:
-        logger.error("No token found in auth_state; keys=%s", list(auth_state.keys()))
-        raise HTTPException(status_code=401, detail="Login succeeded but no token could be extracted")
+    # Extract ALL persist fields, same as CLI
+    persist_fields = _extract_all_persist_fields(auth_state, auth_spec)
 
+    # Build profile name
     profile_name = body.profile_name
     if not profile_name:
         if body.env_name:
@@ -291,18 +232,21 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
         else:
             profile_name = f"{body.username}@{body.endpoint}"
 
+    # Save profile: persist fields + endpoint metadata + auth_username
     fields: dict[str, Any] = {
         "endpoint": body.endpoint,
-        "token": token_val,
+        "token": persist_fields.get("token", ""),
         "auth_username": body.username,
     }
+    # Copy all other persist fields (refresh_token, csrf, etc.)
+    for k, v in persist_fields.items():
+        if k not in ("token",):
+            fields[k] = v
     if body.endpoints:
         fields["endpoints"] = body.endpoints
-    if expires_at is not None:
-        fields["expires_at"] = expires_at
 
     cred.save_profile(profile_name, fields, set_current=True, service=svc)
-    return {"profile": profile_name, "expires_at": expires_at}
+    return {"profile": profile_name, "expires_at": persist_fields.get("expires_at")}
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +256,7 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
 
 class RefreshBody(BaseModel):
     profile: str = Field(..., description="Profile name to refresh")
-    password: Optional[str] = Field(default=None, description="Password (optional — falls back to KETA_PASS env var)")
+    password: Optional[str] = Field(default=None, description="Password (optional — falls back to env var from spec auth.params)")
 
 
 @router.post("/auth/refresh", summary="Re-authenticate and update an existing profile")
@@ -322,12 +266,8 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
 
     Password resolution order:
     1. ``body.password`` (explicit)
-    2. ``KETA_PASS`` env var (still in process — e.g. same login session)
+    2. env var declared in spec's ``auth.params.password`` (e.g. ``KETA_PASS``)
     3. ``400 PASSWORD_REQUIRED`` if neither is available
-
-    For profiles created via CLI (no ``auth_username``), the endpoint
-    requires the user to supply the username in ``body.password`` —
-    the response guides them to re-login if the profile is incomplete.
     """
     service = request.app.state.service
     auth_spec = service.get("auth")
@@ -339,32 +279,23 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
     if not profile:
         raise HTTPException(status_code=404, detail=f"Profile '{body.profile}' not found")
 
-    # Resolve auth endpoint: use the stored generic endpoint that was used
-    # when the profile was created, NOT a random value from the endpoints
-    # map — that map is for *resource* servers (go/java/csp), not the auth
-    # server itself.
     auth_url = profile.get("endpoint", "")
     if not auth_url:
         raise HTTPException(status_code=400, detail="Profile has no endpoint configured")
 
-    # Resolve password (inside the lock to avoid TOCTOU on os.environ)
-    # and username: CLI-created profiles lack auth_username, so we need
-    # to handle that gracefully.
     username = profile.get("auth_username", "")
     password = body.password
+
+    # If no explicit password, try the env var declared in auth.params
     if not password:
-        # Read env var under lock
-        with _auth_lock:
-            password = os.environ.get("KETA_PASS", "")
+        auth_params = auth_spec.get("params", {})
+        env_pass_key = auth_params.get("password", "")
+        if env_pass_key:
+            with _auth_lock:
+                password = os.environ.get(env_pass_key, "")
 
-    # If username is missing (CLI-created profile), the caller must
-    # provide it — we can't guess it.
     if not username:
-        raise HTTPException(
-            status_code=400,
-            detail="PROFILE_MISSING_USERNAME",
-        )
-
+        raise HTTPException(status_code=400, detail="PROFILE_MISSING_USERNAME")
     if not password:
         raise HTTPException(status_code=400, detail="PASSWORD_REQUIRED")
 
@@ -377,18 +308,15 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
         logger.exception("Refresh failed for profile=%s", body.profile)
         raise HTTPException(status_code=502, detail="Refresh failed: server error (check logs)")
 
-    token_val, expires_at = _extract_auth_result(auth_state, auth_spec)
-    if not token_val:
-        raise HTTPException(status_code=401, detail="Refresh failed: no token")
+    # Extract ALL persist fields, same as login
+    persist_fields = _extract_all_persist_fields(auth_state, auth_spec)
 
-    updates: dict[str, Any] = {"token": token_val}
-    if expires_at is not None:
-        updates["expires_at"] = expires_at
+    updates: dict[str, Any] = dict(persist_fields)
     if not profile.get("auth_username"):
         updates["auth_username"] = username
 
     cred.save_profile(body.profile, updates, service=svc)
-    return {"profile": body.profile, "expires_at": expires_at}
+    return {"profile": body.profile, "expires_at": persist_fields.get("expires_at")}
 
 
 # ---------------------------------------------------------------------------
@@ -398,18 +326,10 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
 
 @router.delete("/auth/profile", summary="Delete a credential profile")
 async def delete_auth_profile(profile: str, request: Request) -> dict:
-    """
-    Delete a profile.
-
-    ``credentials.delete_profile()`` already handles the case where the
-    deleted profile was current — it auto-switches to the first remaining
-    profile internally, so the API only needs to return the result.
-    """
     svc = _service_id(request)
     profiles = cred.list_profiles(service=svc)
     if profile not in profiles:
         raise HTTPException(status_code=404, detail=f"Profile '{profile}' not found")
-
     cred.delete_profile(profile, service=svc)
     return {"deleted": profile}
 
@@ -437,19 +357,12 @@ async def get_environments(request: Request) -> dict:
           - staging
           - prod
 
-        default_username: "admin"
-        default_password: ""
-
     **Full format** — each environment fully specified (backward compatible)::
 
         environments:
           - name: staging
             endpoint: "https://api.staging.example.com"
             ...
-
-    When ``url_templates`` is present, simple string entries are expanded
-    and ``default_username`` / ``default_password`` are applied globally.
-    Dict entries may override any field.
     """
     spec_dir = Path(request.app.state.spec_dir)
     env_file = spec_dir / "_environments.yaml"
@@ -471,12 +384,10 @@ async def get_environments(request: Request) -> dict:
     default_pass: str = data.get("default_password", "") or ""
 
     result: list[dict] = []
-    # Keys that can be derived from templates
     template_keys = {"endpoint", "go", "java", "csp"}
 
     for item in env_list:
         if isinstance(item, str):
-            # Simple string: expand from templates
             name = item
             entry: dict = {"name": name}
             if "endpoint" in templates:
@@ -493,7 +404,6 @@ async def get_environments(request: Request) -> dict:
                 entry["default_password"] = default_pass
             result.append(entry)
         elif isinstance(item, dict):
-            # Full dict: use as-is, fill gaps from templates
             entry = dict(item)
             name = entry.get("name", "")
             if not name:
@@ -508,7 +418,6 @@ async def get_environments(request: Request) -> dict:
                         eps[key] = templates[key].replace("{env}", name)
                 if eps:
                     entry["endpoints"] = eps
-            # Remove top-level keys that are now in endpoints
             for key in ("go", "java", "csp"):
                 entry.pop(key, None)
             if not entry.get("default_username") and default_user:

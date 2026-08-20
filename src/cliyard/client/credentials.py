@@ -191,11 +191,9 @@ def save_profile(
 ) -> None:
     """Save or update a profile for the given service.
 
-    Args:
-        name: Profile name (e.g. ``"prod"``, ``"dev"``).
-        fields: Credential fields to store.
-        set_current: If True, also set as the current profile.
-        service: Service/CLI namespace to save under.
+    ``expires_at`` is normalised to Unix seconds (if passed as milliseconds
+    >= 1e11) so that :func:`get_profile` can compare it with ``time.time()``
+    consistently regardless of which source produced the value.
     """
     raw = _load_raw()
     services, raw = _ensure_services(raw, service)
@@ -207,6 +205,19 @@ def save_profile(
     if name not in block["profiles"]:
         block["profiles"][name] = {}
     block["profiles"][name].update(fields)
+
+    # Normalise expires_at to Unix seconds so get_profile() can compare
+    # with time.time() regardless of the source unit (seconds or ms).
+    raw_expires = block["profiles"][name].get("expires_at")
+    if raw_expires is not None:
+        try:
+            val = int(raw_expires)
+            if val >= 100_000_000_000:  # milliseconds → seconds
+                val //= 1000
+            block["profiles"][name]["expires_at"] = val
+        except (ValueError, TypeError):
+            block["profiles"][name].pop("expires_at", None)
+
     if set_current:
         block["current"] = name
     services[service] = block

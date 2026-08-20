@@ -43,7 +43,8 @@ export default function AuthPanel({ open, onClose }: AuthPanelProps) {
           const first = envRes.environments[0];
           setSelectedPreset(first);
           setUsername(first.default_username ?? "");
-          setPassword(first.default_password ?? "");
+          // 只预填用户名，不预填密码（安全）
+          setPassword("");
         }
       })
       .catch((err: unknown) => {
