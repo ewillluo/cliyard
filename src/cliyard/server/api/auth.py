@@ -119,8 +119,10 @@ def _run_auth_chain_safe(
 ) -> dict[str, Any]:
     """Run auth chain with thread-safe env var management.
 
-    ``run_auth_chain`` reads ``KETA_USER`` / ``KETA_PASS`` from
-    ``os.environ`` via its ``env`` steps.  Because ``os.environ`` is
+    ``run_auth_chain`` reads username/password from ``os.environ``
+    via its ``env`` steps (key names from ``auth.params.username`` /
+    ``auth.params.password``, falling back to ``KETA_USER`` / ``KETA_PASS``).
+    Because ``os.environ`` is
     process-global mutable state, **both** the reads and writes are
     serialised under ``_auth_lock``.  The same lock also protects
     ``save_profile`` / ``delete_profile`` calls in login, refresh
@@ -214,7 +216,7 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
     if not auth_spec:
         raise HTTPException(status_code=400, detail="No auth config in spec")
 
-    svc = auth_spec.get("id", service.get("name", "default"))
+    svc = _service_id(request)
 
     try:
         auth_state = _run_auth_chain_safe(auth_spec, body.endpoint, body.username, body.password)
@@ -279,7 +281,7 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
     if not auth_spec:
         raise HTTPException(status_code=400, detail="No auth config in spec")
 
-    svc = auth_spec.get("id", service.get("name", "default"))
+    svc = _service_id(request)
     profiles = cred.list_profiles(service=svc)
     profile = profiles.get(body.profile)
     if not profile:
@@ -387,53 +389,42 @@ async def get_environments(request: Request) -> dict:
         return {"environments": []}
 
     templates: dict = data.get("url_templates", {}) or {}
-    if templates and "endpoint" in templates and "{env}" not in templates["endpoint"]:
-        logger.warning("url_templates.endpoint is missing '{env}' placeholder; all environments will use the same URL")
     env_list: list = data.get("environments", []) or []
     default_user: str = data.get("default_username", "") or ""
-    default_pass: str = data.get("default_password", "") or ""
 
     result: list[dict] = []
     template_keys = {"endpoint", "go", "java", "csp"}
 
+    def _expand_entry(entry: dict, name: str, templates: dict) -> dict:
+        for key in template_keys:
+            if key not in entry and key in templates:
+                tmpl = templates[key]
+                if "{env}" not in tmpl:
+                    logger.warning("url_templates.%s is missing '{env}' placeholder; all environments will use the same URL", key)
+                entry[key] = tmpl.replace("{env}", name)
+        # flatten top-level keys into endpoints
+        eps = {}
+        for key in ("go", "java", "csp"):
+            val = entry.pop(key, None)
+            if val is not None:
+                eps[key] = val
+        if eps:
+            entry["endpoints"] = eps
+        if not entry.get("default_username") and default_user:
+            entry["default_username"] = default_user
+        return entry
+
     for item in env_list:
         if isinstance(item, str):
             name = item
-            entry: dict = {"name": name}
-            if "endpoint" in templates:
-                entry["endpoint"] = templates["endpoint"].replace("{env}", name)
-            eps: dict = {}
-            for key in ("go", "java", "csp"):
-                if key in templates:
-                    eps[key] = templates[key].replace("{env}", name)
-            if eps:
-                entry["endpoints"] = eps
-            if default_user:
-                entry["default_username"] = default_user
-            if default_pass:
-                entry["default_password"] = default_pass
+            entry = _expand_entry({"name": name}, name, templates)
             result.append(entry)
         elif isinstance(item, dict):
             entry = dict(item)
             name = entry.get("name", "")
             if not name:
                 continue
-            for key in template_keys:
-                if key not in entry and key in templates:
-                    entry[key] = templates[key].replace("{env}", name)
-            if "endpoints" not in entry:
-                eps = {}
-                for key in ("go", "java", "csp"):
-                    if key not in entry and key in templates:
-                        eps[key] = templates[key].replace("{env}", name)
-                if eps:
-                    entry["endpoints"] = eps
-            for key in ("go", "java", "csp"):
-                entry.pop(key, None)
-            if not entry.get("default_username") and default_user:
-                entry["default_username"] = default_user
-            if not entry.get("default_password") and default_pass:
-                entry["default_password"] = default_pass
+            entry = _expand_entry(entry, name, templates)
             result.append(entry)
 
     return {"environments": result}

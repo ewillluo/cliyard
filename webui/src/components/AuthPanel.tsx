@@ -237,7 +237,7 @@ export default function AuthPanel({ open, onClose }: AuthPanelProps) {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: fontSize.xs, color: neutral[500], marginBottom: 2 }}>密码</div>
-              <input data-testid="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              <input data-testid="login-password" type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }}
                 style={{ width: "100%", padding: `${space.sm}px ${space.md}px`, border: `1px solid ${neutral[300]}`,
                   borderRadius: radius.md, fontSize: fontSize.sm, fontFamily: fontFamily.mono, boxSizing: "border-box" }} />
@@ -359,7 +359,7 @@ export default function AuthPanel({ open, onClose }: AuthPanelProps) {
             <div style={{ fontSize: fontSize.xs, color: neutral[500], marginBottom: space.md }}>
               账号：{refreshPwDialog.username}
             </div>
-            <input data-testid="refresh-password-input" type="password" placeholder="输入密码"
+            <input data-testid="refresh-password-input" type="password" autoComplete="off" placeholder="输入密码"
               value={refreshPwValue} onChange={(e) => setRefreshPwValue(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmRefreshWithPw(); }}
               style={{ width: "100%", padding: `${space.sm}px ${space.md}px`, border: `1px solid ${neutral[300]}`,
