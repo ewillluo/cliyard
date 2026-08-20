@@ -50,6 +50,7 @@ export default function TopBar({
       <div style={{ display: "flex", alignItems: "center", gap: space.md, minWidth: 0 }}>
         {logoUrl ? (
           <img
+            data-testid="topbar-logo-img"
             src={logoUrl}
             alt={title}
             style={{
@@ -83,6 +84,7 @@ export default function TopBar({
         )}
         <div style={{ minWidth: 0 }}>
           <div
+            data-testid="topbar-title"
             style={{
               fontSize: fontSize.xl,
               fontWeight: 600,
