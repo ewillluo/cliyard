@@ -27,6 +27,7 @@ base64（``data:...;base64,`` 前缀或纯 base64 串），executor 写入临时
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import os
@@ -49,6 +50,7 @@ from cliyard.engine.loader import load_flows, load_service
 from cliyard.engine.orchestrator import _lookup_resource_method, run_flow
 from cliyard.server.context import build_service_context
 from cliyard.server.history import DEFAULT_HISTORY_DB_PATH, HistoryStore
+from rich.console import Console
 
 logger = logging.getLogger("cliyard.server.executor")
 
@@ -404,6 +406,7 @@ class ExecutionManager:
                 service_ctx,
                 service,
                 step_cb=lambda name, payload: self._emit(execution, name, payload),
+                console=Console(soft_wrap=True, force_terminal=False, no_color=True, file=io.StringIO()),
             )
             execution.status = "done"
         except Exception as exc:

@@ -83,34 +83,32 @@ describe("StepsPanel", () => {
     vi.mocked(listExecutions).mockReset();
   });
 
-  it("SSE 事件序列驱动渲染步骤卡片：validate→request→done 共 3 个，done 停止 loading", () => {
+  it("命令执行：validate→request→done 合并为单张「执行结果」卡片，显示耗时和请求详情", () => {
     streamMock.mockImplementation((_id, onEvent) => {
       commandEvents.forEach(onEvent);
       return vi.fn();
     });
     renderPanel();
 
-    expect(screen.getByText("参数校验")).toBeInTheDocument();
-    expect(screen.getByText("发送请求")).toBeInTheDocument();
-    expect(screen.getByText("完成")).toBeInTheDocument();
-    // 时间 pill（HH:MM:SS.mmm）
-    expect(screen.getByText("14:23:01.204")).toBeInTheDocument();
-    // 步骤内容：validate 参数行 + request 行（mono 块按行拆分，断言 pre 文本）+ done 行
-    expect(screen.getByText(/query\.page_size = 20/)).toBeInTheDocument();
-    const pres = document.querySelectorAll("pre");
-    expect(pres[1].textContent).toContain("GET https://api.example.com/api/v1/repos");
-    expect(screen.getByText(/status = done/)).toBeInTheDocument();
+    // 单张卡片，标题为「执行结果」
+    expect(screen.getByText("执行结果")).toBeInTheDocument();
+    // 时间 pill（来自 done 事件的时间）
+    expect(screen.getByText("14:23:01.500")).toBeInTheDocument();
+    // 耗时显示在摘要行（badge 和摘要行各一处）
+    expect(screen.getAllByText("耗时 296ms")).toHaveLength(2);
     // done 事件 → loading 停止：无「执行中」pill
     expect(screen.queryByText("执行中")).not.toBeInTheDocument();
     // 顶部 badge：耗时
     expect(screen.getByTestId("steps-badge")).toHaveTextContent("耗时 296ms");
-    // 图标：validate/request 成功绿，done 完成
+    // 图标：完成状态
     const icons = screen.getAllByTestId("step-icon");
-    expect(icons).toHaveLength(3);
+    expect(icons).toHaveLength(1);
     expect(icons[0].getAttribute("data-status")).toBe("done");
+    // 请求详情折叠面板（含 validate + request 2 个 pipeline 事件）
+    expect(screen.getByText("请求详情（2）")).toBeInTheDocument();
   });
 
-  it("error 事件渲染失败态：标题「错误」+ 失败 pill + 红色图标 + loading 停止", () => {
+  it("命令执行 error：错误信息+失败 pill+红色图标+loading 停止", () => {
     streamMock.mockImplementation((_id, onEvent) => {
       (
         [
@@ -126,12 +124,15 @@ describe("StepsPanel", () => {
     });
     renderPanel();
 
-    expect(screen.getByText("错误")).toBeInTheDocument();
+    // 标题「执行结果」
+    expect(screen.getByText("执行结果")).toBeInTheDocument();
     expect(screen.getByText("失败")).toBeInTheDocument();
-    expect(screen.getByText("Connection refused")).toBeInTheDocument();
+    // 错误信息在摘要行（格式：错误: xxx）
+    expect(screen.getByText("错误: Connection refused")).toBeInTheDocument();
     expect(screen.queryByText("执行中")).not.toBeInTheDocument();
     const icons = screen.getAllByTestId("step-icon");
-    expect(icons[1].getAttribute("data-status")).toBe("error");
+    expect(icons).toHaveLength(1);
+    expect(icons[0].getAttribute("data-status")).toBe("error");
   });
 
   it("flow 事件显示编排步骤进度 badge 与步骤标题（步骤 N · label）", () => {
@@ -144,12 +145,10 @@ describe("StepsPanel", () => {
     // step_start + step_done 合并为一张「步骤 1 · check_user」卡片（不重复展示），
     // 卡片内容 = use 行 + 结果行（elapsed / result_preview）
     expect(screen.getAllByText("步骤 1 · check_user")).toHaveLength(1);
-    const mergedPre = [...document.querySelectorAll("pre")].find((p) =>
-      p.textContent?.includes("use: user.list"),
-    );
-    expect(mergedPre).toBeTruthy();
-    expect(mergedPre?.textContent).toContain("elapsed = 94ms");
-    expect(mergedPre?.textContent).toContain('{"found_users": []}');
+    // summaryLines 渲染为 div，非 pre
+    expect(screen.getByText("use: user.list")).toBeInTheDocument();
+    expect(screen.getByText("耗时 94ms")).toBeInTheDocument();
+    expect(screen.getByText("found_users: []")).toBeInTheDocument();
     expect(screen.getByTestId("steps-badge")).toHaveTextContent("编排步骤 1/1");
   });
 
@@ -265,7 +264,7 @@ describe("StepsPanel", () => {
     expect(screen.getByText("仓库名称")).toBeInTheDocument();
   });
 
-  it("format 事件无 table 时保持纯 JSON 深色代码块", () => {
+  it("format 事件无 table 时显示纯 JSON", () => {
     const formatPlain: ExecutionEvent = {
       type: "format",
       time: "2026-08-13T14:23:01.400123+08:00",
@@ -279,6 +278,7 @@ describe("StepsPanel", () => {
 
     expect(screen.queryByText("表格")).not.toBeInTheDocument();
     expect(screen.queryByText("JSON")).not.toBeInTheDocument();
+    // formatLines 输出在卡片摘要行（通过 formatLines 展示）
     expect(screen.getByText(/"items"/)).toBeInTheDocument();
   });
 });
