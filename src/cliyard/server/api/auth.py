@@ -67,10 +67,16 @@ def _profile_view(name: str, fields: dict) -> dict:
 
 
 def _service_id(request: Request) -> str:
-    """Resolve the credentials namespace for the served spec."""
+    """Resolve the credentials namespace for the served spec.
+
+    Mirrors the CLI's behaviour in ``runner.py``: the auth spec ``id``
+    wins, otherwise the service name (e.g. "cliyard", "jcli", "xiyucli"),
+    so API and CLI share the same namespace.
+    """
     service = request.app.state.service
+    service_name: str = service.get("name", "default")
     auth_spec = service.get("auth")
-    return auth_spec.get("id", service.get("name", "default")) if auth_spec else "default"
+    return auth_spec.get("id", service_name) if auth_spec else service_name
 
 
 def _persist_fields(auth_spec: dict) -> dict[str, str]:
@@ -339,9 +345,21 @@ async def delete_auth_profile(profile: str, request: Request) -> dict:
     profiles = cred.list_profiles(service=svc)
     if profile not in profiles:
         raise HTTPException(status_code=404, detail=f"Profile '{profile}' not found")
+
+    # Check if the profile being deleted is current
+    current = cred.get_current_profile(service=svc)
+    was_current = (current and current.get("_name") == profile)
+
     with _auth_lock:
         cred.delete_profile(profile, service=svc)
-    return {"deleted": profile}
+
+    # Report auto-switch if the deleted profile was current
+    result: dict[str, Any] = {"deleted": profile}
+    if was_current:
+        new_current = cred.get_current_profile(service=svc)
+        if new_current:
+            result["auto_switched_to"] = new_current.get("_name", "")
+    return result
 
 
 # ---------------------------------------------------------------------------
