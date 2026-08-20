@@ -47,9 +47,23 @@ export interface Flow {
   step_count: number;
 }
 
+/** _auth.yaml web 品牌配置 */
+export interface WebBranding {
+  logo_url?: string;
+  logo_text?: string;
+  title?: string;
+  subtitle?: string;
+}
+
 /** GET /api/spec 顶层结构 */
 export interface SpecData {
-  service: { name: string; description: string };
+  service: {
+    name: string;
+    description: string;
+    web?: {
+      branding?: WebBranding;
+    };
+  };
   groups: Group[];
   flows: Flow[];
 }

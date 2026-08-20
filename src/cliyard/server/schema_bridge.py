@@ -264,6 +264,7 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
         "service": {
             "name": service.get("name"),
             "description": service.get("description"),
+            "web": service.get("web", {}),
         },
         "groups": groups,
         "flows": flow_list,

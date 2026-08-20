@@ -113,7 +113,7 @@ export default function App() {
         ...baseFont,
       }}
     >
-      <TopBar onAuthClick={() => setAuthOpen(true)} />
+      <TopBar service={spec?.service} onAuthClick={() => setAuthOpen(true)} />
       <AuthPanel open={authOpen} onClose={() => setAuthOpen(false)} />
 
       {/* 内容区：三栏 */}

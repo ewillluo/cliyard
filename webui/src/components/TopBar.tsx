@@ -9,14 +9,27 @@ import {
   shadow,
   statusColors,
 } from "../styles/tokens";
+import type { WebBranding } from "../api/client";
 
 const baseFont: CSSProperties = { fontFamily: fontFamily.body };
 
 /**
  * 顶栏：浅色白底 height 60（对齐原型 command-panel 顶栏）
- * 左：品牌 C 标 + 标题 + spec 副标题；右：运行状态 pill + 「认证」按钮
+ * 左：品牌 Logo + 标题 + 副标题；右：运行状态 pill + 「认证」按钮
  */
-export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
+export default function TopBar({
+  service,
+  onAuthClick,
+}: {
+  service?: { name: string; description: string; web?: { branding?: WebBranding } };
+  onAuthClick?: () => void;
+}) {
+  const branding = service?.web?.branding;
+  const title = branding?.title || service?.name || "cliyard-web";
+  const subtitle = branding?.subtitle || service?.description || "";
+  const logoUrl = branding?.logo_url;
+  const logoText = branding?.logo_text || (service?.name?.[0] || "C").toUpperCase();
+
   return (
     <header
       data-testid="topbar"
@@ -33,27 +46,41 @@ export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
         ...baseFont,
       }}
     >
-      {/* 左：品牌 C 标 + 标题 + spec 副标题 */}
+      {/* 左：品牌 Logo + 标题 + 副标题 */}
       <div style={{ display: "flex", alignItems: "center", gap: space.md, minWidth: 0 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 34,
-            height: 34,
-            flexShrink: 0,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: radius.md,
-            backgroundColor: brand[500],
-            color: "#FFFFFF",
-            fontWeight: 700,
-            fontSize: fontSize.lg,
-            boxShadow: shadow.brand,
-          }}
-        >
-          C
-        </span>
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={title}
+            style={{
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              borderRadius: radius.md,
+              objectFit: "contain",
+            }}
+          />
+        ) : (
+          <span
+            aria-hidden
+            style={{
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: radius.md,
+              backgroundColor: brand[500],
+              color: "#FFFFFF",
+              fontWeight: 700,
+              fontSize: fontSize.lg,
+              boxShadow: shadow.brand,
+            }}
+          >
+            {logoText}
+          </span>
+        )}
         <div style={{ minWidth: 0 }}>
           <div
             style={{
@@ -64,11 +91,13 @@ export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
               whiteSpace: "nowrap",
             }}
           >
-            cliyard-web
+            {title}
           </div>
-          <div style={{ fontSize: fontSize.xs, color: neutral[400], marginTop: 1, whiteSpace: "nowrap" }}>
-            spec: ./examples/demo
-          </div>
+          {subtitle && (
+            <div style={{ fontSize: fontSize.xs, color: neutral[400], marginTop: 1, whiteSpace: "nowrap" }}>
+              {subtitle}
+            </div>
+          )}
         </div>
       </div>
 
@@ -101,7 +130,7 @@ export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
               flexShrink: 0,
             }}
           />
-          运行中 · :8080
+          运行中
         </span>
         <button type="button" className="cliyard-text-btn" data-testid="auth-button" onClick={onAuthClick}>
           登录认证
