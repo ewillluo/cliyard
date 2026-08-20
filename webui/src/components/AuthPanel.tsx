@@ -201,7 +201,7 @@ export default function AuthPanel({ open, onClose }: AuthPanelProps) {
             <div style={{ display: "flex", gap: space.sm, marginBottom: space.sm, flexWrap: "wrap" }}>
               {presets.map((env) => (
                 <button key={env.name} type="button"
-                  onClick={() => { setSelectedPreset(env); setUsername(env.default_username ?? ""); setPassword(env.default_password ?? ""); }}
+                  onClick={() => { setSelectedPreset(env); setUsername(env.default_username ?? ""); setPassword(""); }}
                   style={{
                     padding: `${space.xs}px ${space.md}px`, borderRadius: radius.md,
                     border: `1px solid ${selectedPreset?.name === env.name ? brand[200] : neutral[200]}`,

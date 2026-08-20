@@ -387,6 +387,8 @@ async def get_environments(request: Request) -> dict:
         return {"environments": []}
 
     templates: dict = data.get("url_templates", {}) or {}
+    if templates and "endpoint" in templates and "{env}" not in templates["endpoint"]:
+        logger.warning("url_templates.endpoint is missing '{env}' placeholder; all environments will use the same URL")
     env_list: list = data.get("environments", []) or []
     default_user: str = data.get("default_username", "") or ""
     default_pass: str = data.get("default_password", "") or ""
