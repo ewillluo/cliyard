@@ -104,7 +104,7 @@ export default function TopBar({ onAuthClick }: { onAuthClick?: () => void }) {
           运行中 · :8080
         </span>
         <button type="button" className="cliyard-text-btn" data-testid="auth-button" onClick={onAuthClick}>
-          认证
+          登录认证
         </button>
       </div>
     </header>

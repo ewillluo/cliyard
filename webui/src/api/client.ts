@@ -247,6 +247,7 @@ export function loginAuth(body: {
   password: string;
   endpoint: string;
   endpoints?: Record<string, string>;
+  env_name?: string;
   profile_name?: string;
 }): Promise<{ profile: string; expires_at?: number }> {
   return request<{ profile: string; expires_at?: number }>("/api/auth/login", jsonInit("POST", body));
