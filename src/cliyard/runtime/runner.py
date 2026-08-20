@@ -17,6 +17,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from collections import defaultdict
 from typing import Any, NoReturn
 
 import click
@@ -298,11 +299,28 @@ def create_cli(
             from rich.table import Table
 
             console = Console()
-            table = Table(box=None, show_header=False, padding=(0, 2))
+
+            # 按 category 分组
+            grouped = defaultdict(list)
             for f in flows:
-                desc = f.description or ""
-                table.add_row(f.command, desc)
-            console.print(table)
+                grouped[f.category or "其他"].append(f)
+
+            # category → 中文名映射
+            cat_labels = {
+                "supplier-introduce": "供应商引入",
+                "eco-inquiry": "生态询价",
+                "csp-data": "CSP 数据",
+                "fmp": "FMP 同步",
+            }
+
+            for cat, cat_flows in grouped.items():
+                label = cat_labels.get(cat, cat)
+                table = Table(title=f"[{label}]", box=None, show_header=False, padding=(0, 2))
+                for f in cat_flows:
+                    desc = f.description or ""
+                    table.add_row(f.command, desc)
+                console.print(table)
+                console.print()
 
         run_group = LabeledGroup(name="run", help="Run a flow orchestration")
         for flow_spec in flows:

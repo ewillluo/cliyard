@@ -150,6 +150,8 @@ class FlowSpec:
     Attributes:
         command: CLI command name (e.g. "deploy").
         description: Human-readable description.
+        category: Flow categorization tag.
+        labels: List of labels for filtering/grouping.
         params: Parameter definitions (name → config dict).
         steps: Ordered list of FlowStep.
         hooks: Lifecycle hooks (FlowHookType → config dict).
@@ -157,6 +159,8 @@ class FlowSpec:
 
     command: str
     description: str = ""
+    category: str = ""
+    labels: list[str] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)
     steps: list[FlowStep] = field(default_factory=list)
     hooks: dict[str, dict[str, Any]] | None = None

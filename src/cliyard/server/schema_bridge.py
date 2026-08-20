@@ -181,7 +181,7 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
         "groups": [{"group", "desc", "commands", "resources":
         [{"name", "desc", "commands": [{"name", "labels", "desc", "path",
         "method", "schema"}]}]}],
-        "flows": [{"name", "description", "command", "params_schema",
+        "flows": [{"name", "description", "command", "category", "labels", "params_schema",
         "step_count"}]}``
 
         分组对齐 CLI ``<group> <resource> <method>`` 结构：``group`` 来自资源的
@@ -252,6 +252,8 @@ def build_command_tree(spec_dir: str | Path) -> dict[str, Any]:
                 "name": flow.command.replace("-", "_"),
                 "description": flow.description,
                 "command": flow.command,
+                "category": flow.category,
+                "labels": flow.labels,
                 "params_schema": build_flow_schema(flow.params, title=flow.command),
                 "step_count": len(flow.steps),
             }
