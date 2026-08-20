@@ -424,17 +424,97 @@ async def get_environments(request: Request) -> dict:
     """
     Read ``_environments.yaml`` from the spec directory (if it exists).
 
-    This is a purely optional file that CLI projects can create to provide
-    environment presets for the Web UI login form.  The framework only
-    provides the reading mechanism — it defines no presets itself.
-    Returns an empty list when the file does not exist.
+    Supports two formats:
+
+    **Simple format** — environment names only, URLs expanded from templates::
+
+        url_templates:
+          endpoint: "https://api-{env}.example.com"
+          go:       "https://api-{env}.example.com"
+          java:     "https://api-java-{env}.example.com"
+
+        environments:
+          - staging
+          - prod
+
+        default_username: "admin"
+        default_password: ""
+
+    **Full format** — each environment fully specified (backward compatible)::
+
+        environments:
+          - name: staging
+            endpoint: "https://api.staging.example.com"
+            ...
+
+    When ``url_templates`` is present, simple string entries are expanded
+    and ``default_username`` / ``default_password`` are applied globally.
+    Dict entries may override any field.
     """
     spec_dir = Path(request.app.state.spec_dir)
     env_file = spec_dir / "_environments.yaml"
-    if env_file.is_file():
-        try:
-            data = yaml.safe_load(env_file.read_text(encoding="utf-8"))
-            return {"environments": data.get("environments", []) if isinstance(data, dict) else []}
-        except Exception:
-            logger.warning("Failed to parse %s, returning empty presets", env_file)
-    return {"environments": []}
+    if not env_file.is_file():
+        return {"environments": []}
+
+    try:
+        data = yaml.safe_load(env_file.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("Failed to parse %s, returning empty presets", env_file)
+        return {"environments": []}
+
+    if not isinstance(data, dict):
+        return {"environments": []}
+
+    templates: dict = data.get("url_templates", {}) or {}
+    env_list: list = data.get("environments", []) or []
+    default_user: str = data.get("default_username", "") or ""
+    default_pass: str = data.get("default_password", "") or ""
+
+    result: list[dict] = []
+    # Keys that can be derived from templates
+    template_keys = {"endpoint", "go", "java", "csp"}
+
+    for item in env_list:
+        if isinstance(item, str):
+            # Simple string: expand from templates
+            name = item
+            entry: dict = {"name": name}
+            if "endpoint" in templates:
+                entry["endpoint"] = templates["endpoint"].replace("{env}", name)
+            eps: dict = {}
+            for key in ("go", "java", "csp"):
+                if key in templates:
+                    eps[key] = templates[key].replace("{env}", name)
+            if eps:
+                entry["endpoints"] = eps
+            if default_user:
+                entry["default_username"] = default_user
+            if default_pass:
+                entry["default_password"] = default_pass
+            result.append(entry)
+        elif isinstance(item, dict):
+            # Full dict: use as-is, fill gaps from templates
+            entry = dict(item)
+            name = entry.get("name", "")
+            if not name:
+                continue
+            for key in template_keys:
+                if key not in entry and key in templates:
+                    entry[key] = templates[key].replace("{env}", name)
+            if "endpoints" not in entry:
+                eps = {}
+                for key in ("go", "java", "csp"):
+                    if key not in entry and key in templates:
+                        eps[key] = templates[key].replace("{env}", name)
+                if eps:
+                    entry["endpoints"] = eps
+            # Remove top-level keys that are now in endpoints
+            for key in ("go", "java", "csp"):
+                entry.pop(key, None)
+            if not entry.get("default_username") and default_user:
+                entry["default_username"] = default_user
+            if not entry.get("default_password") and default_pass:
+                entry["default_password"] = default_pass
+            result.append(entry)
+
+    return {"environments": result}
