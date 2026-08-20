@@ -15,6 +15,7 @@ New endpoints (service-generic, no business knowledge):
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -28,9 +29,15 @@ from cliyard.client import credentials as cred
 from cliyard.client.auth import run_auth_chain
 from cliyard.client.http import HttpClient
 
+logger = logging.getLogger("cliyard.server.auth")
+
 router = APIRouter()
 
 _switch_lock = threading.Lock()
+# Protect os.environ writes during auth chain execution — FastAPI is
+# multi-threaded async and concurrent requests must not overwrite each
+# other's KETA_USER / KETA_PASS env vars.
+_auth_lock = threading.Lock()
 _MASK = "\u2022\u2022\u2022\u2022"  # ••••
 
 
@@ -43,6 +50,16 @@ def _mask_token(token: str) -> str:
     return _MASK + token[-4:]
 
 
+def _normalize_expires_at(raw: Any) -> int | None:
+    """Normalize expires_at to int (Unix timestamp) or None."""
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def _profile_view(name: str, fields: dict) -> dict:
     """Build the public view of a profile — never includes the raw token."""
     view: dict = {
@@ -51,7 +68,7 @@ def _profile_view(name: str, fields: dict) -> dict:
         "token_masked": _mask_token(str(fields.get("token", ""))),
     }
     if "expires_at" in fields:
-        view["expires_at"] = fields["expires_at"]
+        view["expires_at"] = _normalize_expires_at(fields["expires_at"])
     if "auth_username" in fields:
         view["auth_username"] = fields["auth_username"]
     return view
@@ -63,6 +80,50 @@ def _service_id(request: Request) -> str:
     service_name: str = service.get("name", "cliyard")
     auth_spec = service.get("auth")
     return auth_spec.get("id", service_name) if auth_spec else service_name
+
+
+def _run_auth_chain_safe(auth_spec: dict, endpoint: str, username: str, password: str) -> dict[str, Any]:
+    """Run auth chain with thread-safe env var management.
+
+    ``run_auth_chain`` reads ``KETA_USER`` / ``KETA_PASS`` from ``os.environ``
+    via its ``env`` steps.  Because ``os.environ`` is process-global mutable
+    state, concurrent FastAPI requests must be serialised during the write +
+    execute window to avoid cross-contamination.
+    """
+    auth_params = auth_spec.get("params", {})
+    env_user_key = auth_params.get("username", "KETA_USER")
+    env_pass_key = auth_params.get("password", "KETA_PASS")
+
+    with _auth_lock:
+        old_user = os.environ.get(env_user_key)
+        old_pass = os.environ.get(env_pass_key)
+        try:
+            os.environ[env_user_key] = username
+            os.environ[env_pass_key] = password
+            client = HttpClient(endpoint)
+            return run_auth_chain(auth_spec, http_client=client)
+        finally:
+            # Restore previous values (or remove if they didn't exist)
+            if old_user is not None:
+                os.environ[env_user_key] = old_user
+            else:
+                os.environ.pop(env_user_key, None)
+            if old_pass is not None:
+                os.environ[env_pass_key] = old_pass
+            else:
+                os.environ.pop(env_pass_key, None)
+
+
+def _extract_auth_result(auth_state: dict[str, Any]) -> tuple[str | None, int | None]:
+    """Extract (token, expires_at) from auth_state."""
+    crm_login = auth_state.get("crm_login", {})
+    if isinstance(crm_login, dict):
+        token_val = crm_login.get("token")
+        expires_at = _normalize_expires_at(crm_login.get("expires_at"))
+    else:
+        token_val = crm_login if isinstance(crm_login, str) else None
+        expires_at = None
+    return token_val, expires_at
 
 
 # ── Existing endpoints ──
@@ -121,8 +182,8 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
     """
     Authenticate against the given endpoint and save the result as a profile.
 
-    Sets ``KETA_USER`` / ``KETA_PASS`` env vars, runs the auth chain,
-    persists the token + expires_at under the spec's service namespace.
+    Runs the auth chain with thread-safe env var management, persists the
+    token + expires_at under the spec's service namespace.
     """
     service = request.app.state.service
     auth_spec = service.get("auth")
@@ -131,28 +192,16 @@ async def auth_login(body: LoginRequest, request: Request) -> dict:
 
     svc = auth_spec.get("id", service.get("name", "default"))
 
-    # Set env vars for the auth chain
-    auth_params = auth_spec.get("params", {})
-    os.environ[auth_params.get("username", "KETA_USER")] = body.username
-    os.environ[auth_params.get("password", "KETA_PASS")] = body.password
-
-    client = HttpClient(body.endpoint)
+    # Run auth chain (thread-safe env var management)
     try:
-        auth_state = run_auth_chain(auth_spec, http_client=client)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Login failed: {e}")
+        auth_state = _run_auth_chain_safe(auth_spec, body.endpoint, body.username, body.password)
+    except Exception:
+        logger.exception("Login failed for user=%s endpoint=%s", body.username, body.endpoint)
+        raise HTTPException(status_code=401, detail="Login failed: invalid credentials or endpoint")
 
-    # Extract token
-    token_val = auth_state.get("crm_login", {})
-    if isinstance(token_val, dict):
-        token_val = token_val.get("token")
+    token_val, expires_at = _extract_auth_result(auth_state)
     if not token_val:
         raise HTTPException(status_code=401, detail="Login failed: no token in response")
-
-    # Extract expires_at (may be None)
-    expires_at = None
-    if isinstance(auth_state.get("crm_login"), dict):
-        expires_at = auth_state["crm_login"].get("expires_at")
 
     # Build profile name: explicit > env_name-username > username@endpoint
     profile_name = body.profile_name
@@ -205,9 +254,12 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
     if not profile:
         raise HTTPException(status_code=404, detail=f"Profile '{body.profile}' not found")
 
-    # Resolve endpoint
-    go_url = profile.get("endpoints", {}).get("go", profile.get("endpoint", ""))
-    if not go_url:
+    # Resolve endpoint: use the first available endpoint from profile's
+    # endpoints map, falling back to the generic endpoint.  This avoids
+    # hardcoding a specific server name like "go".
+    endpoints_map = profile.get("endpoints", {}) or {}
+    auth_url = next(iter(endpoints_map.values()), None) or profile.get("endpoint", "")
+    if not auth_url:
         raise HTTPException(status_code=400, detail="Profile has no endpoint configured")
 
     # Resolve password: explicit > env var > error
@@ -218,25 +270,16 @@ async def auth_refresh(body: RefreshBody, request: Request) -> dict:
     if not username:
         raise HTTPException(status_code=400, detail="Profile has no auth_username")
 
-    # Set env vars
-    os.environ["KETA_USER"] = username
-    os.environ["KETA_PASS"] = password
-
-    client = HttpClient(go_url)
+    # Run auth chain (thread-safe)
     try:
-        auth_state = run_auth_chain(auth_spec, http_client=client)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Refresh failed: {e}")
+        auth_state = _run_auth_chain_safe(auth_spec, auth_url, username, password)
+    except Exception:
+        logger.exception("Refresh failed for profile=%s", body.profile)
+        raise HTTPException(status_code=401, detail="Refresh failed: invalid credentials or endpoint")
 
-    token_val = auth_state.get("crm_login", {})
-    if isinstance(token_val, dict):
-        token_val = token_val.get("token")
+    token_val, expires_at = _extract_auth_result(auth_state)
     if not token_val:
         raise HTTPException(status_code=401, detail="Refresh failed: no token")
-
-    expires_at = None
-    if isinstance(auth_state.get("crm_login"), dict):
-        expires_at = auth_state["crm_login"].get("expires_at")
 
     # Update profile (preserve existing fields)
     updates: dict[str, Any] = {"token": token_val}
@@ -291,5 +334,5 @@ async def get_environments(request: Request) -> dict:
             data = yaml.safe_load(env_file.read_text(encoding="utf-8"))
             return {"environments": data.get("environments", []) if isinstance(data, dict) else []}
         except Exception:
-            pass
+            logger.warning("Failed to parse %s, returning empty presets", env_file)
     return {"environments": []}
