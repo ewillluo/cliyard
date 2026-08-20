@@ -60,11 +60,11 @@ describe("AuthPanel", () => {
     });
   });
 
-  it("登录表单默认填充第一个环境的账号密码", async () => {
+  it("登录表单默认填充第一个环境的账号，密码为空", async () => {
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId("login-username")).toHaveValue("admin");
-      expect(screen.getByTestId("login-password")).toHaveValue("adminpass");
+      expect(screen.getByTestId("login-password")).toHaveValue("");
     });
   });
 
@@ -86,12 +86,13 @@ describe("AuthPanel", () => {
     expect(getMock).toHaveBeenCalledTimes(2);
   });
 
-  it("环境按钮可切换，切换后更新账号密码默认值", async () => {
+  it("环境按钮可切换，切换后更新账号，密码为空", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByText("prod")).toBeInTheDocument());
     fireEvent.click(screen.getByText("prod"));
     await waitFor(() => {
       expect(screen.getByTestId("login-username")).toHaveValue("admin");
+      expect(screen.getByTestId("login-password")).toHaveValue("");
     });
   });
 
