@@ -432,13 +432,13 @@ export default function StepsPanel({ executionId, onReExecute }: StepsPanelProps
 
     steps.forEach((ev, i) => {
       // 1) pipeline 事件（validate/auth/request/response/format 等，无 index）
-      if (!ev.type.startsWith("step_") && ev.type !== "flow_end" && ev.type !== "done" && ev.type !== "error") {
+      if (!ev.type.startsWith("step_") && ev.type !== "flow_end" && ev.type !== "flow_start" && ev.type !== "done" && ev.type !== "error") {
         pendingPipeline.push(ev);
         return;
       }
 
-      // 2) flow_end / done → 跳过（不纳入步骤卡片）
-      if (ev.type === "flow_end" || ev.type === "done") {
+      // 2) flow_end / flow_start / done → 跳过（不纳入步骤卡片）
+      if (ev.type === "flow_end" || ev.type === "flow_start" || ev.type === "done") {
         return;
       }
 
@@ -585,25 +585,69 @@ const card: StepCard = {
       if (ev.type === "error") return;
     });
 
+    // 8) 命令执行（无 step_start/step_done）：pendingPipeline 从未被消费
+    //    用 format 事件（如果有）创建单张结果卡片
+    if (list.length === 0 && pendingPipeline.length > 0) {
+      const formatEv = pendingPipeline.find((e) => e.type === "format");
+      const doneEv = steps.find((e) => e.type === "done");
+      const errorEv = steps.find((e) => e.type === "error");
+      const card: StepCard = {
+        key: "command-result",
+        title: "执行结果",
+        time: timeToDisplay(formatEv?.time ?? errorEv?.time ?? doneEv?.time ?? pendingPipeline[0]?.time ?? ""),
+        status: errorEv ? "error" : doneEv ? "done" : "running",
+        isDoneEvent: false,
+        summaryLines: [],
+        paramsEntries: [],
+        pipelineEvents: pendingPipeline,
+        logs: [],
+        formatLines: [],
+        tableString: undefined,
+      };
+      // 从 format 事件提取输出预览
+      if (formatEv) {
+        const preview = typeof formatEv.output_preview === "string" ? formatEv.output_preview : formatValue(formatEv.output_preview);
+        if (preview) {
+          card.formatLines = preview.split("\n");
+        }
+        if (formatEv.table && formatEv.table.columns.length > 0 && formatEv.table.rows.length > 0) {
+          card.table = formatEv.table;
+        }
+      }
+      // 从 done 事件提取耗时
+      if (doneEv && doneEv.duration_ms !== undefined) {
+        card.summaryLines.push(`耗时 ${String(doneEv.duration_ms)}ms`);
+      }
+      // 从 error 事件提取错误信息
+      if (errorEv) {
+        card.summaryLines.push(`错误: ${String(errorEv.message ?? "")}`);
+      }
+      list.push(card);
+    }
+
     return list;
   }, [steps, loading]);
 
   // 顶部 badge
   const doneSteps = steps.filter((s) => s.type === "step_done").length;
-  const maxStepIndex = steps.reduce((m, s) => {
-    const idx = Number(s.index);
-    return (s.type === "step_start" || s.type === "step_done") && idx > m ? idx : m;
-  }, 0);
+  const flowStartCount = steps.find((s) => s.type === "flow_start")?.step_count;
   const flowEndCount = steps.find((s) => s.type === "flow_end")?.step_count;
-  const flowTotal = flowEndCount !== undefined ? Number(flowEndCount) : maxStepIndex;
+  // 优先 flow_start（执行中已知总数），其次 flow_end（已完成），最后 maxStepIndex 兜底
+  const flowTotal = flowStartCount !== undefined
+    ? Number(flowStartCount)
+    : flowEndCount !== undefined
+      ? Number(flowEndCount)
+      : 0;
   const doneEvent = steps.find((s) => s.type === "done");
   const badge = flowTotal > 0
-    ? `编排步骤 ${doneSteps}/${flowTotal}`
-    : doneEvent
-      ? `耗时 ${String(doneEvent.duration_ms)}ms`
-      : loading
-        ? "执行中…"
-        : "";
+    ? `编排步骤 ${doneSteps}/${flowTotal}${loading ? " · 执行中" : ""}`
+    : doneSteps > 0
+      ? `编排步骤 ${doneSteps}${loading ? " · 执行中" : ""}`
+      : doneEvent
+        ? `耗时 ${String(doneEvent.duration_ms)}ms`
+        : loading
+          ? "执行中…"
+          : "";
 
   const copyText = cards.map((c) =>
     `[${c.time}] ${c.title}\n${c.summaryLines.map(l => `  ${l}`).join("\n")}`
@@ -662,7 +706,16 @@ const card: StepCard = {
                 padding: "2px 8px", fontFamily: fontFamily.mono,
                 fontSize: fontSize.xs, color: neutral[500],
                 border: `1px solid ${neutral[200]}`,
+                display: "inline-flex", alignItems: "center", gap: space.xs,
               }}>
+                {loading && (
+                  <span aria-hidden style={{
+                    width: 5, height: 5, borderRadius: "50%",
+                    backgroundColor: brand[500],
+                    animation: "cliyard-breathe 1.2s ease-in-out infinite",
+                    flexShrink: 0,
+                  }} />
+                )}
                 {badge}
               </span>
             )}
@@ -776,6 +829,20 @@ const card: StepCard = {
                           whiteSpace: "pre", minWidth: "fit-content",
                         }}>
                           {c.tableString}
+                        </pre>
+                      </div>
+                    )}
+
+                    {/* 纯 JSON 输出（format 事件无 table 时的 output_preview） */}
+                    {!c.table && c.formatLines.length > 0 && (
+                      <div style={{ marginTop: space.sm, borderRadius: radius.md, border: `1px solid ${neutral[200]}`, backgroundColor: neutral[900], overflowX: "auto" }}>
+                        <pre style={{
+                          margin: 0, padding: space.sm,
+                          fontFamily: fontFamily.mono, fontSize: fontSize.xs,
+                          lineHeight: 1.4, color: "#6EE7B7",
+                          whiteSpace: "pre-wrap", wordBreak: "break-all",
+                        }}>
+                          {c.formatLines.map((l, li) => <DarkLine key={li} text={l} />)}
                         </pre>
                       </div>
                     )}

@@ -1344,6 +1344,7 @@ def run_flow(
     server_override: str | None = None,
     verbose: bool = False,
     step_cb: Callable[[str, dict], None] | None = None,
+    console: Any = None,
 ) -> None:
     """Execute a flow definition sequentially.
 
@@ -1379,7 +1380,8 @@ def run_flow(
     from cliyard.client.auth import run_auth_chain
     from cliyard.client.http import HttpClient
 
-    console = Console(soft_wrap=True, force_terminal=False, no_color=True)
+    if console is None:
+        console = Console(soft_wrap=True, force_terminal=False, no_color=True)
 
     # Create shared HTTP client
     _base = server_override or service_ctx.base_url
@@ -1432,6 +1434,8 @@ def run_flow(
         console.print("[yellow]Flow completed (no steps)[/yellow]")
         _emit_step(step_cb, "flow_end", {"outcome": "completed", "step_count": 0})
         return
+
+    _emit_step(step_cb, "flow_start", {"step_count": len(flow_spec.steps)})
 
     step_results: list[dict] = []
     for step_index, step in enumerate(flow_spec.steps, 1):
