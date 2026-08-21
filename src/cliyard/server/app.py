@@ -121,6 +121,16 @@ def create_app(
 
     app.include_router(api_router)
 
+    # 挂载 spec 目录下的 logo/ 静态目录（如存在），供 web.branding.logo_url 引用。
+    # 前端通过 /spec-static/logo/logo.png 即可访问，路径不随部署环境变化。
+    logo_dir = spec_path / "logo"
+    if logo_dir.is_dir():
+        app.mount(
+            "/spec-static/logo",
+            StaticFiles(directory=str(logo_dir)),
+            name="spec-logo",
+        )
+
     @app.get("/health")
     async def health() -> dict:
         return {
