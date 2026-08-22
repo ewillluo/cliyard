@@ -15,6 +15,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: webui/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: webui
+      - name: Build frontend
+        run: bash ../scripts/build-webui.sh
+        working-directory: webui
+      - name: Verify frontend artifacts exist
+        run: test -d src/cliyard/server/webui/dist && test -f src/cliyard/server/webui/dist/index.html
       - run: pip install build
       - run: python3 -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
