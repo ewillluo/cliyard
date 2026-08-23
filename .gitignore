@@ -21,6 +21,10 @@ Thumbs.db
 cliyard-specs/
 *.local.yaml
 
+# Web UI build artifacts — built by GitHub Actions (scripts/build-webui.sh) on release,
+# not committed to the repo
+src/cliyard/server/webui/dist/
+
 # .omo workflow state
 .omo/drafts/
 .omo/evidence/
