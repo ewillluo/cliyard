@@ -1529,7 +1529,7 @@ def run_flow(
                     "status": "fail",
                     "use": step.use or "",
                     "elapsed_ms": int((time.perf_counter() - _start) * 1000),
-                    "result_preview": "",
+                    "result_preview": f"error: {_msg}",
                 },
             )
             _emit_step(step_cb, "flow_end", {"outcome": "failed", "step_count": len(step_results)})
@@ -1556,7 +1556,7 @@ def run_flow(
                     "status": "fail",
                     "use": step.use or "",
                     "elapsed_ms": int((time.perf_counter() - _start) * 1000),
-                    "result_preview": "",
+                    "result_preview": f"error: {_msg}",
                 },
             )
             _emit_step(step_cb, "flow_end", {"outcome": "failed", "step_count": len(step_results)})
