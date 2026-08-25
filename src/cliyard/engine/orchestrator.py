@@ -593,7 +593,7 @@ def _execute_action_item(
 
     # Sub-step (has an "id" + "use" + "params")
     step_id = item.get("id")
-    if step_id and item.get("use"):
+    if step_id and (item.get("use") or item.get("type", "").startswith("plugin:")):
         from cliyard.engine.flow import FlowStep
 
         template_ctx = _build_template_context(context)
@@ -602,6 +602,7 @@ def _execute_action_item(
             id=step_id,
             description=item.get("description", ""),
             use=item.get("use", ""),
+            type=item.get("type", ""),
             params=resolved,
             retry=item.get("retry"),
             until=item.get("until"),
